@@ -1,4 +1,5 @@
 # Kickstart file for virtual AD domain controller server
+# TODO: add support for specifying a custom NetBIOS domain name
 
 # Install with commandline (see below for comments):
 # nomodeset elevator=deadline ip=nicname:dhcp inst.ks=http://dangerous.ovirt.life/hvp-repos/el7/ks/hvp-dc-c7.ks
@@ -38,7 +39,7 @@
 # Note: the default admin user password is HVP_dem0
 # Note: the default keyboard layout is us
 # Note: the default local timezone is UTC
-# Note: to work around a known kernel commandline length limitation, all hvp_* parameters above (except for hvp_nicmacfix) can be omitted and proper default values (overriding the hardcoded ones) can be placed in Bash-syntax variables-definition files placed alongside the kickstart file - the name of the files retrieved and sourced (in the exact order) is: hvp_parameters.sh hvp_parameters_dc.sh hvp_parameters_hh:hh:hh:hh:hh:hh.sh (where hh:hh:hh:hh:hh:hh is the MAC address of the nic used to retrieve the kickstart file, if specified with the ip=nicname:... option)
+# Note: to work around a known kernel commandline length limitation, all hvp_* parameters above can be omitted and proper default values (overriding the hardcoded ones) can be placed in Bash-syntax variables-definition files placed alongside the kickstart file - the name of the files retrieved and sourced (in the exact order) is: hvp_parameters.sh hvp_parameters_dc.sh hvp_parameters_hh:hh:hh:hh:hh:hh.sh (where hh:hh:hh:hh:hh:hh is the MAC address of the nic used to retrieve the kickstart file, if specified with the ip=nicname:... option)
 
 # Perform an installation (as opposed to an "upgrade")
 install
@@ -124,6 +125,7 @@ stunnel
 # Note: the following is required for AD-integrated signed NTP replies
 # TODO: investigate usage of Chrony together with Samba4 AD DC and restore chronyd as NTP server solution as soon as it becomes viable
 ntp
+-chrony
 # Note: the following seems to be missing by default and we explicitly include it to allow efficient updates
 deltarpm
 rdate
@@ -691,8 +693,9 @@ newaliases
 EOF
 
 # Create localization setup fragment
+# TODO: allow changing system language too
 cat << EOF > /tmp/full-localization
-# Default system language
+# Default system language, additional languages can be enabled installing the appropriate packages below
 lang en_US.UTF-8
 # Keyboard layout
 keyboard --vckeymap=${keyboard_layout}
@@ -770,6 +773,7 @@ fi
 allowed_addr="${network['mgmt']}/${netmask['mgmt']} ${allowed_addr}"
 cat << EOF > /tmp/hvp-tcp_wrappers-conf/hosts.allow
 ALL: ${allowed_addr}
+sshd: ALL
 
 EOF
 
@@ -785,6 +789,7 @@ samba-tool domain provision --use-rfc2307 --realm=$(echo ${domain_name[${my_zone
 res=\$?
 if [ \${res} -eq 0 ]; then
 	# Add DNS forwarders
+	sed -i -e '/^\s*dns\s*forwarder\s*=/d' /etc/samba/smb.conf
 	sed -i -e "s/^\\(\\s*\\)\\(server\\s*role.*\\)\$/\\1\\2\\n\\1dns forwarder = $(echo ${my_forwarders} | sed -e 's/,/ /g')/" /etc/samba/smb.conf
 	# Make global Kerberos configuration point to Samba custom configuration
 	ln -sf /var/lib/samba/private/krb5.conf /etc/krb5.conf
@@ -806,24 +811,23 @@ if [ \${res} -eq 0 ]; then
 	# Add round-robin-resolved name for CTDB-controlled NFS/CIFS services
 	# TODO: find a way to add A records with a TTL of 1
 EOF
-	for ((i=0;i<${active_storage_node_count};i=i+1)); do
-		cat <<- EOF >> rc.samba-dc-provision
-		        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password=${root_password}
-		        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${domain_name[${my_zone}]} --username=administrator --password=${root_password}
-		EOF
-	done
+for ((i=0;i<${active_storage_node_count};i=i+1)); do
+	cat <<- EOF >> rc.samba-dc-provision
+	        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password=${root_password}
+	        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${domain_name[${my_zone}]} --username=administrator --password=${root_password}
+	EOF
+done
 cat << EOF >> rc.samba-dc-provision
 	# Add a group with Unix attributes
 	samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10001 --username=administrator --password=${root_password}
 	# Add an unprivileged user with Unix attributes
+	# Note: newly created users will have default AD primary group set to the "Domain Users" group
 	# TODO: find a general way to define uid/gid values
 	samba-tool user create "win${admin_username}" "${admin_password}" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${admin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password=${root_password}
-	# Add newly created user to the default "Domain Users" group
-	samba-tool group addmembers "Domain Users" "win${admin_username}"
 	# TODO: Add gidNumber (10000) attribute to the default "Domain Users" group
 	# Reconfigure networking to use localhost DNS
-	for nic_cfg in /etc/sysconfig/network-scripts/ifcfg-* ; do
-		eval \$(grep '^DEVICE=' "\${nic_cfg}")
+	for nic_cfg_file in /etc/sysconfig/network-scripts/ifcfg-* ; do
+		eval \$(grep '^DEVICE=' "\${nic_cfg_file}")
 		nic_name="\${DEVICE}"
 		if echo "\${nic_name}" | egrep -q '^(lo|sit)' ; then
 			continue
@@ -831,8 +835,10 @@ cat << EOF >> rc.samba-dc-provision
 		sed -i -e '/^PEERDNS=/s/=.*\$/="no"/' -e '/^DNS[0-9]/d' -e '/^DOMAIN=/d' "\${nic_cfg_file}"
 		echo "DNS1=127.0.0.1" >> "\${nic_cfg_file}"
 		echo "DOMAIN=${domain_name[${my_zone}]}" >> "\${nic_cfg_file}"
+		# Note: Connection reload seems not enough - restarting NetworkManager service regenerates /etc/resolv.conf as expected
 		nmcli connection reload
-	fi
+		systemctl restart NetworkManager
+	done
 else
 	logger -s -p "local7.err" -t "rc.samba-dc-provision" "Error while provisioning Samba4 AD DC domain: \${res}"
 	exit 255
@@ -848,7 +854,7 @@ popd
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082001"
+script_version="2017082009"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -996,6 +1002,7 @@ elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
 	yum -y install open-vm-tools open-vm-tools-desktop fuse
 	# Note: the following is needed to recompile external VMHGFS support from VMwareTools - separately installed since it's not needed on server machines
 	# TODO: disabled since required development packages cannot be installed
+	# TODO: switch to VMware repo and install vmhgfs kmod package from there
 	#yum -y install fuse-devel
 fi
 
@@ -1014,6 +1021,19 @@ yum --enablerepo '*' clean all
 # Remove package update leftovers
 find /etc -type f -name '*.rpmnew' -exec rename .rpmnew "" '{}' ';'
 find /etc -type f -name '*.rpmsave' -exec rm -f '{}' ';'
+
+# Disable mirrorlists and use baseurls only (better utilization of our proxy cache)
+# Note: repeated here since repo file could have been upgraded above
+for repofile in /etc/yum.repos.d/*.repo; do
+	if grep -q '^mirrorlist' "${repofile}"; then
+		sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+		sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+	fi
+done
+# Modify baseurl definitions to allow effective use of our proxy cache
+sed -i -e 's>http://apt\.sw\.be/redhat/el7/en/>http://ftp.fi.muni.cz/pub/linux/repoforge/redhat/el7/en/>g' /etc/yum.repos.d/rpmforge.repo
+sed -i -e 's>http://download.fedoraproject.org/pub/epel/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/7/>g' /etc/yum.repos.d/epel.repo
+sed -i -e 's>http://download.fedoraproject.org/pub/epel/testing/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/testing/7/>g' /etc/yum.repos.d/epel-testing.repo
 
 # Now configure the base OS
 
@@ -1190,7 +1210,7 @@ fi
 # Note: signed NTP replies for Samba4 AD-DC interoperability configured through a custom configuration fragment created in pre section above and copied in second post section below
 mkdir -p /var/lib/samba/ntp_signd
 chgrp ntp /var/lib/samba/ntp_signd
-chmod g+ws /var/lib/samba/ntp_signd
+chmod 2750 /var/lib/samba/ntp_signd
 
 # Enable NTPd
 firewall-offline-cmd --add-service=ntp
@@ -1207,7 +1227,7 @@ After=network.target remote-fs.target nss-lookup.target
 [Service]
 Type=forking
 ExecStart=/usr/sbin/samba -D
-PIDFile=/var/run/samba/samba.pid
+PIDFile=/var/run/samba.pid
 
 [Install]
 WantedBy=multi-user.target
@@ -1243,15 +1263,8 @@ firewall-offline-cmd --add-service=samba
 firewall-offline-cmd --add-service=samba-ad-dc
 systemctl disable samba-ad-dc
 
-# Configure TCP wrappers (only SSH allowed from anywhere)
-# Note: further rules created in pre section above and appended in second post section below
-cat << EOF >> /etc/hosts.allow
-sshd: ALL
-EOF
-cat << EOF >> /etc/hosts.deny
-ALL: ALL
-
-EOF
+# Note: Configured TCP wrappers allow file in pre above and copied in second post below
+echo "ALL: ALL" >> /etc/hosts.deny
 
 # Configure SSH (show legal banner, no root login with password, limit authentication tries, no DNS tracing of incoming connections)
 sed -i -e 's/^#\s*PermitRootLogin.*$/PermitRootLogin without-password/' -e 's/^#\s*MaxAuthTries.*$/MaxAuthTries 3/' -e 's/^#\s*UseDNS.*$/UseDNS no/' -e 's%^#\s*Banner.*$%Banner /etc/issue.net%' /etc/ssh/sshd_config
@@ -1374,12 +1387,13 @@ if dmidecode -s system-manufacturer | grep -q "oVirt" ; then
 	#systemctl enable ups
 fi
 
+# Configure Apache
+
 # Note: using haveged to ensure enough entropy (but rngd could be already running from installation environment)
 # Note: starting service manually since systemd inside a chroot would need special treatment
 haveged -w 1024 -F &
 haveged_pid=$!
-# Add custom SSL certificate (2048 bit RSA, SHA256 self signed, 10 years validity)
-# TODO: use our own X.509 certificate below (signed by our own CA)
+# Prepare default (self-signed) certificate
 openssl genrsa 2048 > /etc/pki/tls/private/localhost.key
 cat << EOF | openssl req -new -sha256 -key /etc/pki/tls/private/localhost.key -x509 -days 3650 -out /etc/pki/tls/certs/localhost.crt
 IT
@@ -1417,7 +1431,6 @@ sed -i -e 's/^ServerTokens.*$/ServerTokens ProductOnly/' -e 's/^ServerSignature.
 sed -i -e 's/^\(SSLProtocol.*\)$/#\1/' -e 's/^\(SSLCipherSuite.*\)$/#\1\n# Stricter settings for PCI compliance\nSSLProtocol all -SSLv2 -SSLv3\nSSLCipherSuite ALL:!EXP:!NULL:!ADH:!LOW:!RC4/' /etc/httpd/conf.d/ssl.conf
 
 # Prepare home page
-mkdir -p /var/www/html
 cat << EOF > /var/www/html/index.html
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
 	<head>
@@ -1639,10 +1652,10 @@ chmod 755 /root/bin/backup-conf
 cat << EOF > /root/etc/backup.list
 /boot/grub2
 /etc
+/var/www/html
 /usr/local/bin
 /usr/local/sbin
 /usr/local/etc
-/var/www/html
 /root/bin
 /root/etc
 /root/log
@@ -1691,14 +1704,14 @@ elif dmidecode -s system-manufacturer | grep -q 'Xen' ; then
 	EOM
 	chmod 644 /etc/sysctl.d/99-xen-guest.conf
 	sysctl -p
-	wget --no-check-certificate https://www.computervalley.it/support/Xen/xe-guest-utilities*.rpm
+	wget --no-check-certificate https://dangerous.ovirt.life/support/Xen/xe-guest-utilities*.rpm
 	yum -y --nogpgcheck install ./xe-guest-utilities*.rpm
 	rm -f xe-guest-utilities*.rpm
 elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
 	# Note: VMware basic support uses distro-provided packages installed during post phase
 	# Note: open-vm-tools packages do not include shared folders support - installing upstream VMwareTools here
 	# Note: the upstream VMwareTools installation should not override what already provided by open-vm-tools (verified on version 9.9.3)
-	wget --no-check-certificate -O - https://www.computervalley.it/support/VMware/VMwareTools.tar.gz | tar xzf -
+	wget --no-check-certificate -O - https://dangerous.ovirt.life/support/VMware/VMwareTools.tar.gz | tar xzf -
 	pushd vmware-tools-distrib
 	./vmware-install.pl -d
 	popd
@@ -1706,14 +1719,14 @@ elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
 	rm -rf vmware-tools-distrib
 	need_reboot="yes"
 elif dmidecode -s system-manufacturer | grep -q "innotek" ; then
-	wget --no-check-certificate https://www.computervalley.it/support/VirtualBox/VBoxLinuxAdditions.run
+	wget --no-check-certificate https://dangerous.ovirt.life/support/VirtualBox/VBoxLinuxAdditions.run
 	chmod a+rx VBoxLinuxAdditions.run
 	./VBoxLinuxAdditions.run --nox11
 	usermod -a -G vboxsf mwtouser
 	rm -f VBoxLinuxAdditions.run
 	need_reboot="yes"
 elif dmidecode -s system-manufacturer | grep -q "Parallels" ; then
-	wget --no-check-certificate https://www.computervalley.it/support/Parallels/ParallelsTools.tar.gz | tar xzf -
+	wget --no-check-certificate https://dangerous.ovirt.life/support/Parallels/ParallelsTools.tar.gz | tar xzf -
 	pushd parallels-tools-distrib
 	./install --install-unattended-with-deps
 	popd
@@ -1735,7 +1748,9 @@ EOF
 
 # Saving installation instructions
 # Note: done in rc.ks1stboot since this seems to get created after all post scripts are run
-# TODO: something tries to load /root/anaconda-ks.cfg - find out what/why
+# TODO: something tries to load /root/anaconda-ks.cfg - find out what/why - seems related to https://bugzilla.redhat.com/show_bug.cgi?id=1213114
+# TODO: it seems that a side effect of not moving it is the unconditional execution of the graphical firstboot phase - restoring file moving as a workaround
+# TODO: it seems that the graphical firstboot phase happens anyway and at the end creates a /root/initial-ks.cfg
 cat << EOF >> /etc/rc.d/rc.ks1stboot
 mv /root/*-ks.cfg /root/etc
 EOF
@@ -1750,10 +1765,6 @@ fi
 # Run Samba4 AD DC domain provisioning actions
 if [ -x /etc/rc.d/rc.samba-dc-provision ]; then
 	/etc/rc.d/rc.samba-dc-provision
-	res=\$?
-	if [ \${res} -eq 0 ]; then
-		need_reboot="yes"
-	fi
 fi
 
 # Disable further executions of this script from systemd
@@ -1770,6 +1781,7 @@ exit 0
 EOF
 chmod 750 /etc/rc.d/rc.ks1stboot
 # Prepare first-boot execution through systemd
+# TODO: find a way to actually block logins till this unit exits
 cat << EOF > /etc/systemd/system/ks1stboot.service
 [Unit]
 Description=Post Kickstart first boot configurations
@@ -1788,18 +1800,17 @@ EOF
 chmod 644 /etc/systemd/system/ks1stboot.service
 systemctl enable ks1stboot.service
 
+# TODO: forcibly disable execution of graphical firstboot tool - kickstart directive on top seems to be ignored and moving away anaconda-ks.cfg isn't enough - remove when fixed upstream - see https://bugzilla.redhat.com/show_bug.cgi?id=1213114
+systemctl mask firstboot-graphical
+systemctl mask initial-setup-graphical
+systemctl mask initial-setup-text
+systemctl mask initial-setup
+
 ) 2>&1 | tee /root/kickstart_post.log
 %end
 
 # Post-installation script (run with bash from installation image after the first post section)
 %post --nochroot
-# Copy users setup script (generated in pre section above) into installed system
-if [ -f /tmp/hvp-users-conf/rc.users-setup ]; then
-	cp /tmp/hvp-users-conf/rc.users-setup /mnt/sysimage/etc/rc.d/rc.users-setup
-	chmod 755 /mnt/sysimage/etc/rc.d/rc.users-setup
-	chown root:root /mnt/sysimage/etc/rc.d/rc.users-setup
-fi
-
 # Append hosts fragment (generated in pre section above) into installed system
 if [ -s /tmp/hvp-bind-zones/hosts ]; then
 	cat /tmp/hvp-bind-zones/hosts >> /mnt/sysimage/etc/hosts
@@ -1810,8 +1821,15 @@ if [ -s /tmp/hvp-ntpd-conf/ntp.conf ]; then
 	cat /tmp/hvp-ntpd-conf/ntp.conf >> /mnt/sysimage/etc/ntp.conf
 fi
 
+# Copy users setup script (generated in pre section above) into installed system
+if [ -f /tmp/hvp-users-conf/rc.users-setup ]; then
+	cp /tmp/hvp-users-conf/rc.users-setup /mnt/sysimage/etc/rc.d/rc.users-setup
+	chmod 755 /mnt/sysimage/etc/rc.d/rc.users-setup
+	chown root:root /mnt/sysimage/etc/rc.d/rc.users-setup
+fi
+
 # Copy Samba configuration script (generated in pre section above) into installed system
-if [ -s /tmp/hvp-samba-conf/smb.conf ]; then
+if [ -s /tmp/hvp-samba-conf/rc.samba-dc-provision ]; then
 	cp /tmp/hvp-samba-conf/rc.samba-dc-provision /mnt/sysimage/etc/rc.d/rc.samba-dc-provision
 	# Note: cleartext passwords contained - must restrict access
 	chmod 700 /mnt/sysimage/etc/rc.d/rc.samba-dc-provision
@@ -1830,7 +1848,7 @@ fi
 # Save installation instructions/logs
 # Note: installation logs are now saved under /var/log/anaconda/ by default
 cp /run/install/ks.cfg /mnt/sysimage/root/etc
-for full_frag in /tmp/full-* ; do
+for full_frag in /tmp/full-* /tmp/kscfg-pre/*.sh ; do
 	if [ -f "${full_frag}" ]; then
 		cp "${full_frag}" /mnt/sysimage/root/etc
 	fi
