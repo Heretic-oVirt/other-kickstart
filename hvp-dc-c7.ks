@@ -33,9 +33,9 @@
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
 # Note: the default storage naming uses the "My Little Pony" character name discord for the storage service
 # Note: the default storage IPs base offset on mgmt/lan networks is assumed to be the network address plus 30
-# Note: the default root user password is hvpdemo
+# Note: the default root user password is HVP_dem0
 # Note: the default admin username is hvpadmin
-# Note: the default admin user password is hvpdemo
+# Note: the default admin user password is HVP_dem0
 # Note: the default keyboard layout is us
 # Note: the default local timezone is UTC
 # Note: to work around a known kernel commandline length limitation, all hvp_* parameters above (except for hvp_nicmacfix) can be omitted and proper default values (overriding the hardcoded ones) can be placed in Bash-syntax variables-definition files placed alongside the kickstart file - the name of the files retrieved and sourced (in the exact order) is: hvp_parameters.sh hvp_parameters_dc.sh hvp_parameters_hh:hh:hh:hh:hh:hh.sh (where hh:hh:hh:hh:hh:hh is the MAC address of the nic used to retrieve the kickstart file, if specified with the ip=nicname:... option)
@@ -275,9 +275,10 @@ my_forwarders="8.8.8.8"
 
 my_name="spike"
 
-root_password="hvpdemo"
+# Note: passwords must meet the AD complexity requirements
+root_password="HVP_dem0"
 admin_username="hvpadmin"
-admin_password="hvpdemo"
+admin_password="HVP_dem0"
 keyboard_layout="us"
 local_timezone="UTC"
 
@@ -847,7 +848,7 @@ popd
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017081904"
+script_version="2017082001"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -958,6 +959,9 @@ yum -y install webalizer
 
 # Install Webmin
 yum -y install webmin
+
+# Install custom Samba4 packages with AD DC support from our own repo
+yum -y --enablerepo hvp-samba-dc install samba-dc samba-common-tools samba-client
 
 # Install Network UPS Tools
 # Note: the oVirt based setup has VMs shutting down internally, referring NUT to Engine which in turn tracks actual UPS through host nodes
