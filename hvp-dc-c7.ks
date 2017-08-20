@@ -813,10 +813,13 @@ EOF
 	done
 cat << EOF >> rc.samba-dc-provision
 	# Add a group with Unix attributes
-	samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10000 --username=administrator --password=${root_password}
+	samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10001 --username=administrator --password=${root_password}
 	# Add an unprivileged user with Unix attributes
 	# TODO: find a general way to define uid/gid values
-	samba-tool user create "win${admin_username}" "${admin_password}" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${admin_username} --uid-number=10005 --login-shell=/bin/bash --gid-number=10000 --username=administrator --password=${root_password}
+	samba-tool user create "win${admin_username}" "${admin_password}" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${admin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password=${root_password}
+	# Add newly created user to the default "Domain Users" group
+	samba-tool group addmembers "Domain Users" "win${admin_username}"
+	# TODO: Add gidNumber (10000) attribute to the default "Domain Users" group
 	# Reconfigure networking to use localhost DNS
 	for nic_cfg in /etc/sysconfig/network-scripts/ifcfg-* ; do
 		eval \$(grep '^DEVICE=' "\${nic_cfg}")
@@ -844,7 +847,7 @@ popd
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017081903"
+script_version="2017081904"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
