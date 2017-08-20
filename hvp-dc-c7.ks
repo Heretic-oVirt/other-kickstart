@@ -241,7 +241,7 @@ storage_name="discord"
 # Note: the following can be overridden from commandline
 test_ip_offset="1"
 
-my_ip_offset="1"
+my_ip_offset="220"
 
 # TODO: verify whether the final addresses (network+offset+index) lie inside the network boundaries
 # TODO: verify whether the final addresses (network+offset+index) overlap with base node addresses
@@ -676,10 +676,10 @@ cat << EOF > /tmp/hvp-users-conf/rc.users-setup
 #!/bin/bash
 
 # Configure SSH (allow only listed users)
-sed -i -e '/^PermitRootLogin/s/\$/\\nAllowUsers root ${admin_username}/' /etc/ssh/sshd_config
+sed -i -e "/^PermitRootLogin/s/\\\$/\\\\nAllowUsers root ${admin_username}/" /etc/ssh/sshd_config
 
 # Configure email aliases (divert root email to administrative account)
-sed -i -e 's/^#\\s*root.*\$/root:\\t\\t${admin_username}/' /etc/aliases
+sed -i -e "s/^#\\\\s*root.*\\\$/root:\\\\t\\\\t${admin_username}/" /etc/aliases
 cat << EOM >> /etc/aliases
 
 # Email alias for server monitoring
@@ -777,10 +777,14 @@ mkdir -p /tmp/hvp-samba-conf
 pushd /tmp/hvp-samba-conf
 cat << EOF > rc.samba-dc-provision
 #!/bin/bash
-rm -f /etc/krb5.*
+# Clean up any previous setting
+rm -f /etc/krb5.* /etc/samba/smb.conf
+# Perform domain provisioning
 samba-tool domain provision --use-rfc2307 --realm=$(echo ${domain_name[${my_zone}]} | awk '{print toupper($0)}') --domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print toupper($1)}') --server-role=dc --dns-backend=SAMBA_INTERNAL --adminpass=${root_password}
 res=\$?
 if [ \${res} -eq 0 ]; then
+	# Add DNS forwarders
+	sed -i -e "s/^\\(\\s*\\)\\(server\\s*role.*\\)\$/\\1\\2\\n\\1dns forwarder = $(echo ${my_forwarders} | sed -e 's/,/ /g')/" /etc/samba/smb.conf
 	# Make global Kerberos configuration point to Samba custom configuration
 	ln -sf /var/lib/samba/private/krb5.conf /etc/krb5.conf
 	# Enable signed NTP replies
@@ -795,6 +799,24 @@ if [ \${res} -eq 0 ]; then
 	systemctl --now enable samba-ad-dc
 	# Restart NTPd
 	systemctl restart ntpd
+	# Add DNS reverse zone
+	samba-tool dns zonecreate ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} --username=administrator --password=${root_password}
+	# Add DNS A and PTR records for known machines
+	# Add round-robin-resolved name for CTDB-controlled NFS/CIFS services
+	# TODO: find a way to add A records with a TTL of 1
+EOF
+	for ((i=0;i<${active_storage_node_count};i=i+1)); do
+		cat <<- EOF >> rc.samba-dc-provision
+		        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password=${root_password}
+		        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${domain_name[${my_zone}]} --username=administrator --password=${root_password}
+		EOF
+	done
+cat << EOF >> rc.samba-dc-provision
+	# Add a group with Unix attributes
+	samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10000 --username=administrator --password=${root_password}
+	# Add an unprivileged user with Unix attributes
+	# TODO: find a general way to define uid/gid values
+	samba-tool user create "win${admin_username}" "${admin_password}" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${admin_username} --uid-number=10005 --login-shell=/bin/bash --gid-number=10000 --username=administrator --password=${root_password}
 	# Reconfigure networking to use localhost DNS
 	for nic_cfg in /etc/sysconfig/network-scripts/ifcfg-* ; do
 		eval \$(grep '^DEVICE=' "\${nic_cfg}")
@@ -822,7 +844,7 @@ popd
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017081902"
+script_version="2017081903"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1784,7 +1806,8 @@ fi
 # Copy Samba configuration script (generated in pre section above) into installed system
 if [ -s /tmp/hvp-samba-conf/smb.conf ]; then
 	cp /tmp/hvp-samba-conf/rc.samba-dc-provision /mnt/sysimage/etc/rc.d/rc.samba-dc-provision
-	chmod 755 /mnt/sysimage/etc/rc.d/rc.samba-dc-provision
+	# Note: cleartext passwords contained - must restrict access
+	chmod 700 /mnt/sysimage/etc/rc.d/rc.samba-dc-provision
 	chown root:root /mnt/sysimage/etc/rc.d/rc.samba-dc-provision
 fi
 
