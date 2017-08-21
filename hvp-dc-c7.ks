@@ -1,5 +1,4 @@
 # Kickstart file for virtual AD domain controller server
-# TODO: add support for specifying a custom NetBIOS domain name
 
 # Install with commandline (see below for comments):
 # nomodeset elevator=deadline ip=nicname:dhcp inst.ks=http://dangerous.ovirt.life/hvp-repos/el7/ks/hvp-dc-c7.ks
@@ -14,6 +13,7 @@
 # Note: to force custom IPs add hvp_{mgmt,lan}_my_ip=t.t.t.t where t.t.t.t is the chosen IP on the given network
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
 # Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
+# Note: to force custom NetBIOS domain name add hvp_netbiosdomain=MYDOM where MYDOM is the NetBIOS domain name
 # Note: to force custom nameserver IP (during installation) add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
 # Note: to force custom forwarders IPs add hvp_forwarders=forw0,forw1,forw2 where forwN are the forwarders IPs
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
@@ -29,6 +29,7 @@
 # Note: the default MTU is assumed to be 1500 on {mgmt,lan}
 # Note: the default machine IPs are assumed to be the 220th IPs available (network address + 220) on each connected network
 # Note: the default domain names are assumed to be {mgmt,lan}.private
+# Note: the default NetBIOS domain name is equal to the first part of the DNS domain name of the lan network (or mgmt if there is only one network) in uppercase
 # Note: the default nameserver IP is assumed to be 8.8.8.8 during installation (afterwards it will be switched to 127.0.0.1 unconditionally)
 # Note: the default forwarder IP is assumed to be 8.8.8.8
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
@@ -215,6 +216,7 @@ unset netmask
 unset network_base
 unset mtu
 unset domain_name
+unset netbios_domain_name
 unset reverse_domain_name
 unset test_ip
 unset test_ip_offset
@@ -471,6 +473,12 @@ if echo "${given_hostname}" | grep -q '^[[:alnum:]]\+$' ; then
 	my_name="${given_hostname}"
 fi
 
+# Determine NetBIOS domain name
+given_netbiosdomain=$(sed -n -e 's/^.*hvp_netbiosdomain=\(\S*\).*$/\1/p' /proc/cmdline)
+if echo "${given_netbiosdomain}" | grep -q '^[[:alnum:]]\+$' ; then
+	netbios_domain_name=$(echo "${given_netbiosdomain}" | awk '{print toupper($0)}')
+fi
+
 # Determine nameserver address
 given_nameserver=$(sed -n -e "s/^.*hvp_nameserver=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_nameserver}" ]; then
@@ -622,6 +630,11 @@ if [ -n "${nics['lan']}" ]; then
 	my_zone="lan"
 else
 	my_zone="mgmt"
+fi
+
+# Define default NetBIOS domain name if not specified
+if [ -z "${netbios_domain_name}" ]; then
+	netbios_domain_name=$(echo ${domain_name[${my_zone}]} | awk -F. '{print toupper($1)}')
 fi
 
 # Create network setup fragment
@@ -785,7 +798,7 @@ cat << EOF > rc.samba-dc-provision
 # Clean up any previous setting
 rm -f /etc/krb5.* /etc/samba/smb.conf
 # Perform domain provisioning
-samba-tool domain provision --use-rfc2307 --realm=$(echo ${domain_name[${my_zone}]} | awk '{print toupper($0)}') --domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print toupper($1)}') --server-role=dc --dns-backend=SAMBA_INTERNAL --adminpass=${root_password}
+samba-tool domain provision --use-rfc2307 --realm=$(echo ${domain_name[${my_zone}]} | awk '{print toupper($0)}') --domain=${netbios_domain_name} --server-role=dc --dns-backend=SAMBA_INTERNAL --adminpass=${root_password}
 res=\$?
 if [ \${res} -eq 0 ]; then
 	# Add DNS forwarders
@@ -821,10 +834,13 @@ cat << EOF >> rc.samba-dc-provision
 	# Add a group with Unix attributes
 	samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10001 --username=administrator --password=${root_password}
 	# Add an unprivileged user with Unix attributes
-	# Note: newly created users will have default AD primary group set to the "Domain Users" group
+	# Note: newly created users will have default AD primary group set to the "Domain Users" group so it will "map" to (overlap with) the default users Unix group
+	# Note: By default the "Domain Users" group has gidNumber 100
 	# TODO: find a general way to define uid/gid values
+	# TODO: it seems that AD primary group still has precedence and the user does not belong to the UnixUsers group above - find out why
 	samba-tool user create "win${admin_username}" "${admin_password}" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${admin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password=${root_password}
-	# TODO: Add gidNumber (10000) attribute to the default "Domain Users" group
+	# Reconfigure NSS to use also Winbind (useful for "getent" use and filesystem listings)
+	sed -i -r -e '/^(passwd|group):\s/s/\$/ winbind/g' /etc/nsswitch.conf
 	# Reconfigure networking to use localhost DNS
 	for nic_cfg_file in /etc/sysconfig/network-scripts/ifcfg-* ; do
 		eval \$(grep '^DEVICE=' "\${nic_cfg_file}")
@@ -854,7 +870,7 @@ popd
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082009"
+script_version="2017082010"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
