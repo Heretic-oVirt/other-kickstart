@@ -1,6 +1,8 @@
 # Kickstart file for virtual AD domain controller server
 
 # Install with commandline (see below for comments):
+# TODO: check each and every custom "hvp_" parameter below for overlap with default dracut/anaconda parameters and convert to using those instead
+# TODO: switch to HTTPS as soon as a non-self-signed certificate will be available
 # nomodeset elevator=deadline ip=nicname:dhcp inst.ks=http://dangerous.ovirt.life/hvp-repos/el7/ks/hvp-dc-c7.ks
 # Note: nicname is the name of the network interface to be used for installation (eg: ens32) - DHCP is assumed available on that network
 # Note: to force custom/predictable nic names add ifname=netN:AA:BB:CC:DD:EE:FF where netN is the desired nic name and AA:BB:CC:DD:EE:FF is the MAC address of the corresponding physical interface
@@ -8,12 +10,13 @@
 # Note: alternatively burn this kickstart into your DVD image and append to default commandline:
 # elevator=deadline inst.ks=cdrom:/dev/cdrom:/ks/ks.cfg
 # Note: to access the running installation by SSH (beware of publishing the access informations specified with the sshpw directive below) add the option inst.sshd
+# Note: to force static nic name-to-MAC mapping add the option hvp_nicmacfix
 # Note: to force custom host naming add hvp_myname=myhostname where myhostname is the unqualified (ie without domain name part) hostname
 # Note: to force custom addressing add hvp_{mgmt,lan}=x.x.x.x/yy where x.x.x.x may either be the machine IP or the network address on the given network and yy is the prefix on the given network
 # Note: to force custom IPs add hvp_{mgmt,lan}_my_ip=t.t.t.t where t.t.t.t is the chosen IP on the given network
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
 # Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
-# Note: to force custom NetBIOS domain name add hvp_netbiosdomain=MYDOM where MYDOM is the NetBIOS domain name
+# Note: to force custom NetBIOS domain naming add hvp_netbiosdomain=MYDOM where MYDOM is the NetBIOS domain name
 # Note: to force custom nameserver IP (during installation) add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
 # Note: to force custom forwarders IPs add hvp_forwarders=forw0,forw1,forw2 where forwN are the forwarders IPs
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
@@ -24,6 +27,7 @@
 # Note: to force custom admin password add hvp_adminpwd=myothersecret where myothersecret is the admin user password
 # Note: to force custom keyboard layout add hvp_kblayout=cc where cc is the country code
 # Note: to force custom local timezone add hvp_timezone=VV where VV is the timezone specification
+# Note: the default behaviour does not register fixed nic name-to-MAC mapping
 # Note: the default host naming uses the "My Little Pony" character name spike
 # Note: the default addressing on connected networks is assumed to be 172.20.{10,12}.0/24 on {mgmt,lan}
 # Note: the default MTU is assumed to be 1500 on {mgmt,lan}
@@ -69,7 +73,6 @@ cdrom
 # Network interface configuration dynamically generated in pre section below
 %include /tmp/full-network
 
-
 # Control "First Boot" interactive tool execution
 # TODO: the following seems to be started anyway even if disabled manually in post section below - see https://bugzilla.redhat.com/show_bug.cgi?id=1213114
 firstboot --disable
@@ -104,7 +107,7 @@ selinux --enforcing
 # Note: no additional repos setup - further packages/updates installed manually in post section
 #repo --name="CentOS"  --baseurl=cdrom:sr0 --cost=100
 # TODO: switch to HTTPS as soon as a non-self-signed certificate will be available
-#repo --name="CentOS-mirror" --baseurl=http://ct.mirror.garr.it/mirrors/CentOS/7/os/x86_64
+#repo --name="HVP-mirror" --baseurl=http://dangerous.ovirt.life/hvp-repos/el7/os
 
 # Packages list - package groups are preceded by an "@" sign - excluded packages by an "-" sign
 # Note: some virtualization technologies (VMware, Parallels, VirtualBox) require gcc, kernel-devel and dkms (from external repo) packages
@@ -124,7 +127,7 @@ mcstrans
 stunnel
 -xinetd
 # Note: the following is required for AD-integrated signed NTP replies
-# TODO: investigate usage of Chrony together with Samba4 AD DC and restore chronyd as NTP server solution as soon as it becomes viable
+# TODO: investigate usage of Chrony together with Samba AD DC and restore chronyd as NTP server solution as soon as it becomes viable
 ntp
 -chrony
 # Note: the following seems to be missing by default and we explicitly include it to allow efficient updates
@@ -210,6 +213,7 @@ ipmat() {
 }
 
 # Define all default network data
+unset nicmacfix
 unset node_count
 unset network
 unset netmask
@@ -234,6 +238,8 @@ unset keyboard_layout
 unset local_timezone
 
 # Hardcoded defaults
+
+nicmacfix="false"
 
 default_node_count="3"
 
@@ -409,6 +415,11 @@ done
 
 # TODO: perform better consistency check on all commandline-given parameters
 
+# Determine choice of nic MAC fixed assignment
+if grep -w -q 'hvp_nicmacfix' /proc/cmdline ; then
+	nicmacfix="true"
+fi
+
 # Determine cluster members number
 given_node_count=$(sed -n -e 's/^.*hvp_nodecount=\(\S*\).*$/\1/p' /proc/cmdline)
 if ! echo "${given_node_count}" | grep -q '^[[:digit:]]\+$' ; then
@@ -501,6 +512,14 @@ fi
 unset my_ip
 declare -A my_ip
 for zone in "${!network[@]}" ; do
+	given_network_domain_name=$(sed -n -e "s/^.*hvp_${zone}_domainname=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+	if [ -n "${given_network_domain_name}" ]; then
+		domain_name["${zone}"]="${given_network_domain_name}"
+	fi
+	given_network_mtu=$(sed -n -e "s/^.*hvp_${zone}_mtu=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+	if [ -n "${given_network_mtu}" ]; then
+		mtu["${zone}"]="${given_network_mtu}"
+	fi
 	given_network=$(sed -n -e "s/^.*hvp_${zone}=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 	unset NETWORK NETMASK
 	eval $(ipcalc -s -n "${given_network}")
@@ -522,14 +541,6 @@ for zone in "${!network[@]}" ; do
 		else
 			my_ip["${zone}"]=$(ipmat ${NETWORK} ${my_ip_offset} +)
 		fi
-	fi
-	given_network_domain_name=$(sed -n -e "s/^.*hvp_${zone}_domainname=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_network_domain_name}" ]; then
-		domain_name["${zone}"]="${given_network_domain_name}"
-	fi
-	given_network_mtu=$(sed -n -e "s/^.*hvp_${zone}_mtu=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_network_mtu}" ]; then
-		mtu["${zone}"]="${given_network_mtu}"
 	fi
 	given_network_test_ip=$(sed -n -e "s/^.*hvp_${zone}_test_ip=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 	if [ -n "${given_network_test_ip}" ]; then
@@ -718,6 +729,7 @@ EOF
 
 # Create disk setup fragment
 # TODO: find a better way to detect emulated/VirtIO devices
+all_devices="$(list-harddrives | egrep -v '^(fd|sr)[[:digit:]]*[[:space:]]' | awk '{print $1}' | sort)"
 if [ -b /dev/vda ]; then
 	device_name="vda"
 elif [ -b /dev/xvda ]; then
@@ -736,16 +748,19 @@ ignoredisk --only-use=${device_name}
 # Automatically create UEFI or BIOS boot partition depending on hardware capabilities
 reqpart --add-boot
 # Simple partitioning: single root and swap
-part swap --fstype swap --size=10240 --ondisk=${device_name} --asprimary
+part swap --fstype swap --recommended --ondisk=${device_name} --asprimary
 part / --fstype xfs --size=100 --grow --ondisk=${device_name} --asprimary
 EOF
 # Clean up disks from any previous software-RAID (Linux or BIOS based)
-# TODO: this does not work on CentOS7 (it would need some sort of late disk-status refresh induced inside anaconda) - workaround by manually zeroing-out the first 10 MiBs from a rescue boot before starting the install process (or simply restarting when installation stops with storage errors)
+# TODO: this does not work on CentOS7 (it would need some sort of late disk-status refresh induced inside anaconda) - workaround by manually zeroing-out the first 10 MiBs from a rescue boot before starting the install process (or simply restarting when installation stops/hangs at storage setup)
 # Note: skipping this on a virtual machine to avoid inflating a thin-provisioned virtual disk
 # Note: dmidecode command may no longer be available in pre environment
 if cat /sys/class/dmi/id/sys_vendor | egrep -q -v "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
-	dd if=/dev/zero of=/dev/${device_name} bs=1M count=10
-	dd if=/dev/zero of=/dev/${device_name} bs=1M count=10 seek=$(($(blockdev --getsize64 /dev/${device_name}) / (1024 * 1024) - 10))
+	# Note: resetting all disk devices since leftover LVM configurations may interfer with installation and/or setup later on
+	for current_device in ${all_devices}; do
+		dd if=/dev/zero of=/dev/${current_device} bs=1M count=10
+		dd if=/dev/zero of=/dev/${current_device} bs=1M count=10 seek=$(($(blockdev --getsize64 /dev/${current_device}) / (1024 * 1024) - 10))
+	done
 fi
 
 # Prepare NTPd configuration fragment to be appended later on below
@@ -809,7 +824,7 @@ if [ \${res} -eq 0 ]; then
 	# Enable signed NTP replies
 	cat <<- EOM >> /etc/ntp.conf
 	
-	# Signed responses for MS AD members
+	# Signed responses for Windows AD members
 	ntpsigndsocket /var/lib/samba/ntp_signd/
 	restrict default mssntp
 	
@@ -851,12 +866,12 @@ cat << EOF >> rc.samba-dc-provision
 		sed -i -e '/^PEERDNS=/s/=.*\$/="no"/' -e '/^DNS[0-9]/d' -e '/^DOMAIN=/d' "\${nic_cfg_file}"
 		echo "DNS1=127.0.0.1" >> "\${nic_cfg_file}"
 		echo "DOMAIN=${domain_name[${my_zone}]}" >> "\${nic_cfg_file}"
-		# Note: Connection reload seems not enough - restarting NetworkManager service regenerates /etc/resolv.conf as expected
 		nmcli connection reload
+		# TODO: Connection reload seems not enough - restarting NetworkManager service regenerates /etc/resolv.conf as expected - investigate and correct nmcli command above
 		systemctl restart NetworkManager
 	done
 else
-	logger -s -p "local7.err" -t "rc.samba-dc-provision" "Error while provisioning Samba4 AD DC domain: \${res}"
+	logger -s -p "local7.err" -t "rc.samba-dc-provision" "Error while provisioning Samba AD DC domain: \${res}"
 	exit 255
 fi
 EOF
@@ -865,12 +880,24 @@ popd
 ) 2>&1 | tee /tmp/kickstart_pre.log
 %end
 
-# Post-installation script (run with bash from chroot at the end of installation)
+# Post-installation script (run with bash from installation image at the end of installation)
+%post --nochroot --log /dev/console
+# Copy configuration parameters files (generated in pre section above) into installed system (to be loaded during chrooted post section below)
+for custom_frag in /tmp/kscfg-pre/*.sh ; do
+	if [ -f "${custom_frag}" ]; then
+		mkdir -p /mnt/sysimage/tmp/kscfg-pre
+		cp "${custom_frag}" /mnt/sysimage/tmp/kscfg-pre/
+	fi
+done
+
+%end
+
+# Post-installation script (run with bash from chroot after the first post section)
 # Note: console logging to support commandline virt-install invocation
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082010"
+script_version="2017082101"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -891,6 +918,39 @@ hostname ${HOSTNAME}
 
 # Set the homedir for apps that need it
 export HOME="/root"
+
+# Hardcoded defaults
+
+unset nicmacfix
+
+nicmacfix="false"
+
+# Load configuration parameters files (generated in pre section above)
+ks_custom_frags="hvp_parameters.sh"
+ks_nic="$(cat /proc/cmdline | sed -e 's/^.*\s*ip=\([^:]*\):.*$/\1/')"
+if [ -f "/sys/class/net/${ks_nic}/address" ]; then
+	ks_custom_frags="${ks_custom_frags} hvp_parameters_heresiarch.sh hvp_parameters_$(cat /sys/class/net/${ks_nic}/address).sh"
+else
+	ks_custom_frags="${ks_custom_frags} hvp_parameters_heresiarch.sh"
+fi
+for custom_frag in ${ks_custom_frags} ; do
+	if [ -f "/tmp/kscfg-pre/${custom_frag}" ]; then
+		# Perform a configuration fragment sanity check before loading
+		bash -n "/tmp/kscfg-pre/${custom_frag}" > /dev/null 2>&1
+		res=$?
+		if [ ${res} -ne 0 ]; then
+			# Report invalid configuration fragment and skip it
+			logger -s -p "local7.err" -t "kickstart-post" "Skipping invalid remote configuration fragment ${custom_frag}"
+			continue
+		fi
+		source "/tmp/kscfg-pre/${custom_frag}"
+	fi
+done
+
+# Determine choice of nic MAC fixed assignment
+if grep -w -q 'hvp_nicmacfix' /proc/cmdline ; then
+	nicmacfix="true"
+fi
 
 # Create /dev/root symlink for grubby (must differentiate for use of LVM or MD based "/")
 # TODO: Open a Bugzilla notification
@@ -982,7 +1042,7 @@ yum -y install webalizer
 # Install Webmin
 yum -y install webmin
 
-# Install custom Samba4 packages with AD DC support from our own repo
+# Install custom Samba packages with AD DC support from our own repo
 yum -y --enablerepo hvp-samba-dc install samba-dc samba-common-tools samba-client
 
 # Install Network UPS Tools
@@ -1169,6 +1229,29 @@ systemctl enable haveged
 
 # Note: users configuration script generated in pre section above and copied in third post section below
 
+# Conditionally force static the nic name<->MAC mapping to work around hardware bugs (eg nic "autoshifting" on some HP MicroServer G7)
+if [ "${nicmacfix}" = "true" ] ; then
+	for nic_cfg in /etc/sysconfig/network-scripts/ifcfg-* ; do
+		eval $(grep '^DEVICE=' "${nic_cfg}")
+		nic_name="${DEVICE}"
+		if echo "${nic_name}" | egrep -q '^(bond|lo|br|sit)' ; then
+			continue
+		fi
+		nic_mac=$(cat "/sys/class/net/${nic_name}/address" 2>/dev/null)
+		# Detect bonding slaves (real MAC address must be specially extracted)
+		if [ -L "/sys/class/net/${nic_name}/master" ]; then
+			nic_master=$(stat --printf="%N" "/sys/class/net/${nic_name}/master" | sed -e "s%^.*-> \`.*/net/\\([^']*\\)'.*\$%\\1%")
+			# Note: all bonding slaves take the apparent MAC address from the bonding master device (which usually takes it from the first slave) - extract the real one
+			nic_mac=$(cat /proc/net/bonding/${nic_master} | awk 'BEGIN {IGNORECASE=1; found="false"}; /^Slave Interface:[[:space:]]*'${nic_name}'[[:space:]]*/ {found="true"}; /^Permanent HW addr:[[:space:]]*/ {if (found == "true") {print $4; exit}}')
+		fi
+		if [ -n "${nic_mac}" ]; then
+			if ! grep -q '^HWADDR=' "${nic_cfg}" ; then
+				echo "HWADDR=\"${nic_mac}\"" >> "${nic_cfg}"
+			fi
+		fi
+	done
+fi
+
 # System clock configuration
 # Note: systemd sets clock to UTC by default
 #echo 'UTC' >> /etc/adjtime
@@ -1215,7 +1298,7 @@ fudge 127.127.1.0 stratum 8
 
 EOF
 
-# Note: Configuration fragment to add NTP service for local clients generated in pre section above and appended in second post section below
+# Note: Configuration fragment to add NTP service for local clients generated in pre section above and appended in third post section below
 
 # Add safeguard for NTP on virtual machines
 if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
@@ -1223,7 +1306,7 @@ if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parall
 fi
 
 # Create socket dir to support signed NTP replies
-# Note: signed NTP replies for Samba4 AD-DC interoperability configured through a custom configuration fragment created in pre section above and copied in second post section below
+# Note: signed NTP replies for Samba AD-DC interoperability configured through a custom configuration fragment created in pre section above and copied in third post section below
 mkdir -p /var/lib/samba/ntp_signd
 chgrp ntp /var/lib/samba/ntp_signd
 chmod 2750 /var/lib/samba/ntp_signd
@@ -1232,9 +1315,9 @@ chmod 2750 /var/lib/samba/ntp_signd
 firewall-offline-cmd --add-service=ntp
 systemctl enable ntpd
 
-# Configure Samba4 AD DC
-# Note: initial domain provisioning preformed by script created in pre section above and copied in second post section below
-# TODO: current Samba4 Fedora packaging lacks a systemd unit for Samba AD DC - creating one here - remove when added upstream
+# Configure Samba AD DC
+# Note: initial domain provisioning preformed by script created in pre section above and copied in third post section below
+# TODO: current Samba Fedora packaging lacks a systemd unit for Samba AD DC - creating one here - remove when added upstream
 cat << EOF > /etc/systemd/system/samba-ad-dc.service
 [Unit]
 Description=Samba Active Directory Domain Controller
@@ -1256,7 +1339,7 @@ cat << EOF > /etc/firewalld/services/samba-ad-dc.xml
 <?xml version="1.0" encoding="utf-8"?>
 <service>
   <short>samba-ad-dc</short>
-  <description>Samba4 AD DC is a Unix implementation of a full Active Directory Domain Controller.</description>
+  <description>Samba AD DC is a Unix implementation of a full Active Directory Domain Controller.</description>
   <port protocol="tcp" port="88"/>
   <port protocol="udp" port="88"/>
   <port protocol="tcp" port="135"/>
@@ -1343,7 +1426,7 @@ Continued use of this computer implies acceptance of the above conditions.
 EOF
 chmod 644 /etc/{issue*,motd}
 
-# Note: email aliases configured through script created in pre section above and copied in second post section below
+# Note: email aliases configured through script created in pre section above and copied in third post section below
 
 # TODO: Send all log messages to our internal syslog server
 # TODO: enable TCP service on internal syslog/firewall servers then uncomment here
@@ -1778,7 +1861,7 @@ if [ -x /etc/rc.d/rc.users-setup ]; then
 	/etc/rc.d/rc.users-setup
 fi
 
-# Run Samba4 AD DC domain provisioning actions
+# Run Samba AD DC domain provisioning actions
 if [ -x /etc/rc.d/rc.samba-dc-provision ]; then
 	/etc/rc.d/rc.samba-dc-provision
 fi
@@ -1825,7 +1908,7 @@ systemctl mask initial-setup
 ) 2>&1 | tee /root/kickstart_post.log
 %end
 
-# Post-installation script (run with bash from installation image after the first post section)
+# Post-installation script (run with bash from installation image after the second post section)
 %post --nochroot
 # Append hosts fragment (generated in pre section above) into installed system
 if [ -s /tmp/hvp-bind-zones/hosts ]; then
@@ -1873,7 +1956,7 @@ cp /tmp/kickstart_pre.log /mnt/sysimage/root/log
 mv /mnt/sysimage/root/kickstart_post.log /mnt/sysimage/root/log
 %end
 
-# Post-installation script (run with bash from chroot after the second post section)
+# Post-installation script (run with bash from chroot after the third post section)
 %post
 # Relabel filesystem
 # This has to be the last post action to catch any files we've created/modified
