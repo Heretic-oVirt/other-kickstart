@@ -896,7 +896,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082201"
+script_version="2017082203"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1035,8 +1035,8 @@ yum -y install nmon dstat
 # Install Apache
 yum -y install httpd mod_ssl
 
-# Install Webalizer
-yum -y install webalizer
+# Install Webalizer and MRTG
+yum -y install webalizer mrtg net-snmp net-snmp-utils
 
 # Install Webmin
 yum -y install webmin
@@ -1306,6 +1306,7 @@ fi
 
 # Create socket dir to support signed NTP replies
 # Note: signed NTP replies for Samba AD-DC interoperability configured through a custom configuration fragment created in pre section above and copied in third post section below
+# Note: samba is quite picky about permissions for the socket directory - change them and it will refuse to operate it
 mkdir -p /var/lib/samba/ntp_signd
 chgrp ntp /var/lib/samba/ntp_signd
 chmod 2750 /var/lib/samba/ntp_signd
@@ -1485,6 +1486,23 @@ if dmidecode -s system-manufacturer | grep -q "oVirt" ; then
 	#systemctl enable ups
 fi
 
+# Configure Net-SNMP
+cp -a /etc/snmp/snmpd.conf /etc/snmp/snmpd.conf.orig
+cat << EOF > /etc/snmp/snmpd.conf
+# Simple setup of Net-SNMP for traffic monitoring
+rocommunity public
+dontLogTCPWrappersConnects yes
+EOF
+
+# Enable Net-SNMP
+systemctl enable snmpd
+
+# Configure MRTG
+
+# Configuration file customization through cfgmaker/indexmaker demanded to post-install rc.ks1stboot script
+
+# Configure MRTG-Apache integration (by default will be reachable only from localhost: use SSH tunneling)
+
 # Configure Apache
 
 # Note: using haveged to ensure enough entropy (but rngd could be already running from installation environment)
@@ -1619,6 +1637,7 @@ cat << EOF > /var/www/html/index.html
 					<ul>
 						<li>Lo strumento web di amministrazione della macchina &egrave; disponibile <a href="/manage/">qui</a>.</li>
 						<li>Lo strumento web di visualizzazione dell'utilizzo rete &egrave; disponibile <a href="/mrtg/">qui</a>.</li>
+						<li>Lo strumento web di visualizzazione dell'utilizzo http &egrave; disponibile <a href="/usage/">qui</a>.</li>
 					</ul>
 					</p>
 				</div>
@@ -1631,6 +1650,7 @@ cat << EOF > /var/www/html/index.html
 					<ul>
 						<li>The server administration web tool is available <a href="/manage/">here</a>.</li>
 						<li>The server network utilization web tool is available <a href="/mrtg/">here</a>.</li>
+						<li>The web server usage statistics are available <a href="/usage/">here</a>.</li>
 					</ul>
 					</p>
 				</div>
@@ -1640,6 +1660,16 @@ cat << EOF > /var/www/html/index.html
 </html>
 EOF
 chmod 644 /var/www/html/index.html
+
+# Configure Webalizer (allow access from everywhere)
+sed -i -e 's/^\(\s*\)\(Require local.*\)$/\1Require all granted/' /etc/httpd/conf.d/webalizer.conf
+
+# Enable Webalizer
+sed -i -e '/WEBALIZER_CRON=/s/^#*\(WEBALIZER_CRON=\).*$/\1yes/' /etc/sysconfig/webalizer
+
+# Enable Apache
+firewall-offline-cmd --add-service=http
+systemctl enable httpd
 
 # Configure Webmin
 # Add "/manage/" location with forced redirect to port 10000 in Apache's configuration
@@ -1651,9 +1681,16 @@ cat << EOF > /etc/httpd/conf.d/webmin.conf
 <Location /manage>
   RewriteEngine On
   RewriteRule ^.*\$ https://%{HTTP_HOST}:10000 [R,L]
-  Order Deny,Allow
-  Deny from all
-  Allow from all
+  <IfModule mod_authz_core.c>
+    # Apache 2.4
+    Require all granted
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    # Apache 2.2
+    Order Deny,Allow
+    Deny from all
+    Allow from all
+  </IfModule>
 </Location>
 
 EOF
@@ -1843,6 +1880,22 @@ popd
 # Note: CentOS 7 persistent net device naming means that MAC addresses are not statically registered by default anymore
 
 EOF
+
+# Initialize MRTG configuration (needs Net-SNMP up)
+# TODO: add CPU/RAM/disk/etc. resource monitoring
+cfgmaker --output /etc/mrtg/mrtg.cfg --global "HtmlDir: /var/www/mrtg" --global "ImageDir: /var/www/mrtg" --global "LogDir: /var/lib/mrtg" --global "ThreshDir: /var/lib/mrtg" --no-down --zero-speed=1000000000 --if-filter='(\$default && \$if_is_ethernet)' public@localhost
+
+# Set execution mode parameters
+# Note: on CentOS7 MRTG is preferably configured as an always running service (for efficiency reasons)
+sed -i -e '/Global Config Options/s/^\(.*\)$/\1\nRunAsDaemon: Yes\nInterval: 5\nNoDetach: Yes/' /etc/mrtg/mrtg.cfg
+
+# Setup MRTG index page
+indexmaker --output=/var/www/mrtg/index.html /etc/mrtg/mrtg.cfg
+
+# Enable MRTG
+# Note: MRTG is an always running service (for efficiency reasons) now
+systemctl enable mrtg
+systemctl start mrtg
 
 # Saving installation instructions
 # Note: done in rc.ks1stboot since this seems to get created after all post scripts are run
