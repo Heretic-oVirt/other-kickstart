@@ -655,7 +655,6 @@ cat << EOF > /tmp/full-network
 # Network device configuration - static version (always verify that your nic is supported by install kernel/modules)
 # Use a "void" configuration to make sure anaconda quickly steps over "onboot=no" devices
 EOF
-bond_index="0"
 for zone in "${!network[@]}" ; do
 	if [ -n "${nics[${zone}]}" ]; then
 		nic_names="${nics[${zone}]}"
@@ -897,7 +896,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082101"
+script_version="2017082201"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
