@@ -42,7 +42,7 @@
 # Note: the default admin user password is HVP_dem0
 # Note: the default keyboard layout is us
 # Note: the default local timezone is UTC
-# Note: to work around a known kernel commandline length limitation, all hvp_* parameters above can be omitted and proper default values (overriding the hardcoded ones) can be placed in Bash-syntax variables-definition files placed alongside the kickstart file - the name of the files retrieved and sourced (in the exact order) is: hvp_parameters.sh hvp_parameters_dc.sh hvp_parameters_hh:hh:hh:hh:hh:hh.sh (where hh:hh:hh:hh:hh:hh is the MAC address of the nic used to retrieve the kickstart file, if specified with the ip=nicname:... option)
+# Note: to work around a known kernel commandline length limitation, all hvp_* parameters above can be omitted and proper default values (overriding the hardcoded ones) can be placed in Bash-syntax variables-definition files placed alongside the kickstart file - the name of the files retrieved and sourced (in the exact order) is: hvp_parameters.sh hvp_parameters_db.sh hvp_parameters_hh:hh:hh:hh:hh:hh.sh (where hh:hh:hh:hh:hh:hh is the MAC address of the nic used to retrieve the kickstart file, if specified with the ip=nicname:... option)
 
 # Perform an installation (as opposed to an "upgrade")
 install
@@ -288,9 +288,9 @@ ks_source="$(cat /proc/cmdline | sed -e 's/^.*\s*inst\.ks=\(\S*\)\s*.*$/\1/')"
 ks_custom_frags="hvp_parameters.sh"
 ks_nic="$(cat /proc/cmdline | sed -e 's/^.*\s*ip=\([^:]*\):.*$/\1/')"
 if [ -f "/sys/class/net/${ks_nic}/address" ]; then
-	ks_custom_frags="${ks_custom_frags} hvp_parameters_dc.sh hvp_parameters_$(cat /sys/class/net/${ks_nic}/address).sh"
+	ks_custom_frags="${ks_custom_frags} hvp_parameters_db.sh hvp_parameters_$(cat /sys/class/net/${ks_nic}/address).sh"
 else
-	ks_custom_frags="${ks_custom_frags} hvp_parameters_dc.sh"
+	ks_custom_frags="${ks_custom_frags} hvp_parameters_db.sh"
 fi
 if [ -z "${ks_source}" ]; then
 	echo "Unable to determine Kickstart source - skipping configuration fragments retrieval" 1>&2
@@ -883,7 +883,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082201"
+script_version="2017082202"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
