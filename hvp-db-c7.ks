@@ -893,12 +893,12 @@ case "${dbtype}" in
 		;;
 	sqlserver)
 		# Initialize SQLServer
+		# Note: 3.25 GiB RAM are absolutely required
 		# TODO: verify editions/licensing, language/collation and paths
 		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD="${root_password}" /opt/mssql/bin/mssql-conf -n setup
 
-		# TODO: Initialize SQLServer Integration Services
-		# TODO: verify unattended configuration
-		#/opt/ssis/bin/ssis-conf setup
+		# Initialize SQLServer Integration Services
+		ACCEPT_EULA=Y /opt/ssis/bin/ssis-conf -n setup
 
 		# Enable and start SQLServer
 		systemctl --now enable mssql-server
@@ -927,7 +927,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082206"
+script_version="2017082207"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1131,20 +1131,23 @@ case "${dbtype}" in
 		chmod 644 /etc/yum.repos.d/msprod.repo
 		chown root:root /etc/yum.repos.d/msprod.repo
 
+		# Set this variable in order to avoid interactive questions from postinst scripts
+		export ACCEPT_EULA=Y
+
 		# Install SQLServer
 		yum -y install mssql-server
 
 		# Install SQLServer command-line tools
-		yum install -y mssql-tools
+		yum -y install mssql-tools
 
 		# Install SQLServer Agent
-		yum install -y mssql-server-agent
+		yum -y install mssql-server-agent
 
 		# Install SQLServer Full-Text Search
-		yum install -y mssql-server-fts
+		yum -y install mssql-server-fts
 
-		# TODO: Install SQLServer Integration Services
-		#yum install -y mssql-server-is
+		# Install SQLServer Integration Services
+		yum -y install mssql-server-is
 
 		# TODO: create rpm package for PHP-MSSQL-Server-Admin from https://github.com/miguelaxcar/PHP-MSSQL-Server-Admin and install together with php-mssql
 		;;
