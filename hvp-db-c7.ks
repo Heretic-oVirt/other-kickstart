@@ -3,7 +3,7 @@
 # Install with commandline (see below for comments):
 # TODO: check each and every custom "hvp_" parameter below for overlap with default dracut/anaconda parameters and convert to using those instead
 # TODO: switch to HTTPS as soon as a non-self-signed certificate will be available
-# nomodeset elevator=deadline ip=nicname:dhcp inst.ks=http://dangerous.ovirt.life/hvp-repos/el7/ks/hvp-dc-c7.ks
+# nomodeset elevator=deadline ip=nicname:dhcp inst.ks=http://dangerous.ovirt.life/hvp-repos/el7/ks/hvp-db-c7.ks
 # Note: nicname is the name of the network interface to be used for installation (eg: ens32) - DHCP is assumed available on that network
 # Note: to force custom/predictable nic names add ifname=netN:AA:BB:CC:DD:EE:FF where netN is the desired nic name and AA:BB:CC:DD:EE:FF is the MAC address of the corresponding physical interface
 # Note: alternatively, to force legacy nic names (ethN), add biosdevname=0 net.ifnames=0
@@ -783,20 +783,44 @@ cat << EOF > rc.db-provision
 #!/bin/bash
 case "${dbtype}" in
 	postgresql)
-		# Prepare password file for PostgreSQL
-		echo "${root_password}" > /var/lib/pgsql/9.6/pwfile
-		chmod 600 /var/lib/pgsql/9.6/pwfile
-		chown postgres /var/lib/pgsql/9.6/pwfile
 		# Initialize PostgreSQL
-		su - postgres /usr/pgsql-9.6/bin/postgresql96-setup initdb --pgdata=/var/lib/pgsql/9.6/data --pwfile=/var/lib/pgsql/9.6/pwfile
+		/usr/pgsql-9.6/bin/postgresql96-setup initdb
 
 		# Enable and start PostgreSQL
 		systemctl --now enable postgresql-9.6
 
+		# Change system/DB password for PostgreSQL admin user
+		echo "${root_password}" | passwd --stdin postgres
+		su - postgres -c "psql -d template1 -c \\"ALTER USER postgres WITH PASSWORD '${root_password}';\\""
+
+		# Enable password authentication
+		sed -i -e '/^host\s*/s/ident/md5/g' -e '/^local\s*/s/peer/md5/g' /var/lib/pgsql/9.6/data/pg_hba.conf
+		# Restart PostgreSQL to apply configuration changes
+		systemctl restart postgresql-9.6
+
 		# Configure phpPgAdmin (allow only through HTTPS; allow from localhost and our networks only)
 		# TODO: verify with newer conditional (Apache 2.2/2.4) and IPv6-too configuration
-		sed -i -e "/^\\\\s*Allow\\\\s*from\\\\s*127\\\\.0\\\\.0\\\\.1/s>127\\\\.0\\\\.0\\\\.1.*\\$>${allowed_addr}>" -e "/^\\\\s*Require\\\\s*local/s>local.*\\$>ip ${allowed_addr}>" -e 's>^\(\s*\)\(Allow\s*from\|Require\s*ip\)\(\s*127\.0\.0\.1.*\)$>\1\2\3\n\1RewriteEngine On\n\1RewriteCond %{HTTPS} !=on\n\1RewriteRule ^.*$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]>' /etc/httpd/conf.d/phpPgAdmin.conf
-		# Restart Apache to apply configuration change
+		sed -i -e 's/^\\(\\s*\\)\\(Order\\s*\\).*\\\$/\\1\\2allow,deny/' -e "/^\\\\s*Allow\\\\s*from\\\\s*127\\\\.0\\\\.0\\\\.1/s>127\\\\.0\\\\.0\\\\.1.*\\$>${allowed_addr}>" -e "/^\\\\s*Require\\\\s*local/s>local.*\\$>ip ${allowed_addr}>" -e 's>^\\(\\s*\\)\\(Allow\\s*from\\|Require\\s*ip\\)\\(\\s*127\\.0\\.0\\.1.*\\)\$>\\1\\2\\3\\n\\1RewriteEngine On\\n\\1RewriteCond %{HTTPS} !=on\\n\\1RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]>' /etc/httpd/conf.d/phpPgAdmin.conf
+		# Add Apache alias for phpPgAdmin
+		cat <<- EOM >> /etc/httpd/conf.d/phpPgAdmin.conf
+
+		Alias /sql /usr/share/phpPgAdmin
+
+		<Location /sql>
+		    <IfModule mod_authz_core.c>
+		        # Apache 2.4
+		        Require ip ${allowed_addr}
+		    </IfModule>
+		    <IfModule !mod_authz_core.c>
+		        # Apache 2.2
+		        Order allow,deny
+		        Deny from all
+		        Allow from ${allowed_addr}
+		        Allow from ::1
+		    </IfModule>
+		</Location>
+		EOM
+		# Restart Apache to apply configuration changes
 		systemctl restart httpd
 		;;
 	mysql)
@@ -813,6 +837,7 @@ case "${dbtype}" in
 		/usr/bin/mysql --user=root <<- EOM
 		SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${root_password}');
 		EOM
+
 		# Configure mysqladmin utility for a password-protected root account
 		cat <<- EOM > /root/.my.cnf
 		[mysqladmin]
@@ -839,8 +864,27 @@ case "${dbtype}" in
 
 		# Configure phpMyAdmin (allow only through HTTPS; allow from localhost and our networks only)
 		# TODO: verify with newer conditional (Apache 2.2/2.4) and IPv6-too configuration
-		sed -i -e "/^\\\\s*\\\\(Allow\\\\s*from\\\\|Require\\\\s*ip\\\\)\\\\s*127\\\\.0\\\\.0\\\\.1/s>127\\\\.0\\\\.0\\\\.1.*\\$>${allowed_addr}>" -e 's>^\(\s*\)\(Allow\s*from\|Require\s*ip\)\(\s*127\.0\.0\.1.*\)$>\1\2\3\n\1RewriteEngine On\n\1RewriteCond %{HTTPS} !=on\n\1RewriteRule ^.*$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]>' /etc/httpd/conf.d/phpMyAdmin.conf
-		# Restart Apache to apply configuration change
+		sed -i -e 's/^\\(\\s*\\)\\(Order\\s*\\).*\\\$/\\1\\2allow,deny/' -e "/^\\\\s*Allow\\\\s*from\\\\s*127\\\\.0\\\\.0\\\\.1/s>127\\\\.0\\\\.0\\\\.1.*\\$>${allowed_addr}>" -e "/^\\\\s*Require\\\\s*local/s>local.*\\$>ip ${allowed_addr}>" -e 's>^\\(\\s*\\)\\(Allow\\s*from\\|Require\\s*ip\\)\\(\\s*127\\.0\\.0\\.1.*\\)\$>\\1\\2\\3\\n\\1RewriteEngine On\\n\\1RewriteCond %{HTTPS} !=on\\n\\1RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]>' /etc/httpd/conf.d/phpMyAdmin.conf
+		# Add Apache alias for phpMyAdmin
+		cat <<- EOM >> /etc/httpd/conf.d/phpMyAdmin.conf
+
+		Alias /sql /usr/share/phpMyAdmin
+
+		<Location /sql>
+		    <IfModule mod_authz_core.c>
+		        # Apache 2.4
+		        Require ip ${allowed_addr}
+		    </IfModule>
+		    <IfModule !mod_authz_core.c>
+		        # Apache 2.2
+		        Order allow,deny
+		        Deny from all
+		        Allow from ${allowed_addr}
+		        Allow from ::1
+		    </IfModule>
+		</Location>
+		EOM
+		# Restart Apache to apply configuration changes
 		systemctl restart httpd
 		;;
 	firebird)
@@ -883,7 +927,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082203"
+script_version="2017082206"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1033,8 +1077,8 @@ yum -y install nmon dstat
 # Install Apache
 yum -y install httpd mod_ssl
 
-# Install Webalizer
-yum -y install webalizer
+# Install Webalizer and MRTG
+yum -y install webalizer mrtg net-snmp net-snmp-utils
 
 # Install Webmin
 yum -y install webmin
@@ -1052,7 +1096,7 @@ case "${dbtype}" in
 		yum -y install barman barman-cli
 
 		# Install phpPgAdmin, PgView, PgTop, PgCenter and PgTune
-		yum -y install phppgadmin pg_view pg_top pgcenter pgtune
+		yum -y install phpPgAdmin pg_view pg_top pgcenter pgtune
 		;;
 	mysql)
 		# Add Percona repository
@@ -1069,7 +1113,7 @@ case "${dbtype}" in
 		yum -y install percona-toolkit
 
 		# Install phpMyAdmin, MySQLreport, MyTop, MTop, InnoTop and MySQLtuner
-		yum -y install phpmyadmin mysqlreport mytop mtop innotop mysqltuner
+		yum -y install phpMyAdmin mysqlreport mytop mtop innotop mysqltuner
 		;;
 	firebird)
 		# Install Firebird
@@ -1480,6 +1524,23 @@ if dmidecode -s system-manufacturer | grep -q "oVirt" ; then
 	#systemctl enable ups
 fi
 
+# Configure Net-SNMP
+cp -a /etc/snmp/snmpd.conf /etc/snmp/snmpd.conf.orig
+cat << EOF > /etc/snmp/snmpd.conf
+# Simple setup of Net-SNMP for traffic monitoring
+rocommunity public
+dontLogTCPWrappersConnects yes
+EOF
+
+# Enable Net-SNMP
+systemctl enable snmpd
+
+# Configure MRTG
+
+# Configuration file customization through cfgmaker/indexmaker demanded to post-install rc.ks1stboot script
+
+# Configure MRTG-Apache integration (by default will be reachable only from localhost: use SSH tunneling)
+
 # Configure Apache
 
 # Note: using haveged to ensure enough entropy (but rngd could be already running from installation environment)
@@ -1615,6 +1676,7 @@ cat << EOF > /var/www/html/index.html
 						<li>Lo strumento web di amministrazione della macchina &egrave; disponibile <a href="/manage/">qui</a>.</li>
 						<li>Lo strumento web di amministrazione del servizio &egrave; disponibile <a href="/sql/">qui</a>.</li>
 						<li>Lo strumento web di visualizzazione dell'utilizzo rete &egrave; disponibile <a href="/mrtg/">qui</a>.</li>
+						<li>Lo strumento web di visualizzazione dell'utilizzo http &egrave; disponibile <a href="/usage/">qui</a>.</li>
 					</ul>
 					</p>
 				</div>
@@ -1628,6 +1690,7 @@ cat << EOF > /var/www/html/index.html
 						<li>The server administration web tool is available <a href="/manage/">here</a>.</li>
 						<li>The service administration web tool is available <a href="/sql/">here</a>.</li>
 						<li>The server network utilization web tool is available <a href="/mrtg/">here</a>.</li>
+						<li>The web server usage statistics are available <a href="/usage/">here</a>.</li>
 					</ul>
 					</p>
 				</div>
@@ -1637,6 +1700,16 @@ cat << EOF > /var/www/html/index.html
 </html>
 EOF
 chmod 644 /var/www/html/index.html
+
+# Configure Webalizer (allow access from everywhere)
+sed -i -e 's/^\(\s*\)\(Require local.*\)$/\1#\2/' /etc/httpd/conf.d/webalizer.conf
+
+# Enable Webalizer
+sed -i -e '/WEBALIZER_CRON=/s/^#*\(WEBALIZER_CRON=\).*$/\1yes/' /etc/sysconfig/webalizer
+
+# Enable Apache
+firewall-offline-cmd --add-service=http
+systemctl enable httpd
 
 # Configure Webmin
 # Add "/manage/" location with forced redirect to port 10000 in Apache's configuration
@@ -1648,9 +1721,16 @@ cat << EOF > /etc/httpd/conf.d/webmin.conf
 <Location /manage>
   RewriteEngine On
   RewriteRule ^.*\$ https://%{HTTP_HOST}:10000 [R,L]
-  Order Deny,Allow
-  Deny from all
-  Allow from all
+  <IfModule mod_authz_core.c>
+    # Apache 2.4
+    Require all granted
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    # Apache 2.2
+    Order Deny,Allow
+    Deny from all
+    Allow from all
+  </IfModule>
 </Location>
 
 EOF
@@ -1748,12 +1828,10 @@ case "${dbtype}" in
 
 		# Disable PostgreSQL
 		# Note: it needs manual initialization before starting
-		systemctl disable mysqld
+		systemctl disable postgresql-9.6
 
-		# Add Apache alias for phpPgAdmin
-		# Note: further phpPgAdmin access control configuration performed in rc.db-provision script
-		echo -e -n "\nAlias /sql /usr/share/phpPgAdmin\n" >> /etc/httpd/conf.d/phpPgAdmin.conf
 		# Enable access through phpPgAdmin
+		# Note: further phpPgAdmin access control configuration performed in rc.db-provision script
 		sed -i -e "/extra_login_security/s/true/false/" /etc/phpPgAdmin/config.inc.php
 		;;
 	mysql)
@@ -1888,9 +1966,8 @@ case "${dbtype}" in
 		restorecon -v /var/log/mysqld.log
 		sed -i -e 's%^/var/lib/mysql/mysqld.log%/var/log/mysqld.log /var/log/mysqld-slow.log%' -e 's/^\(\s*\)postrotate.*$/\1sharedscripts\n\1postrotate/' /etc/logrotate.d/mysql
 		
-		# Add Apache alias for phpMyAdmin
+		# Enable access through phpMyAdmin
 		# Note: further phpMyAdmin access control configuration performed in rc.db-provision script
-		echo -e -n "\nAlias /sql /usr/share/phpMyAdmin\n" >> /etc/httpd/conf.d/phpMyAdmin.conf
 		# Note: using haveged to ensure enough entropy (but rngd could be already running from installation environment)
 		# Note: starting service manually since systemd inside a chroot would need special treatment
 		haveged -w 1024 -F &
@@ -2101,6 +2178,22 @@ popd
 # Note: CentOS 7 persistent net device naming means that MAC addresses are not statically registered by default anymore
 
 EOF
+
+# Initialize MRTG configuration (needs Net-SNMP up)
+# TODO: add CPU/RAM/disk/etc. resource monitoring
+cfgmaker --output /etc/mrtg/mrtg.cfg --global "HtmlDir: /var/www/mrtg" --global "ImageDir: /var/www/mrtg" --global "LogDir: /var/lib/mrtg" --global "ThreshDir: /var/lib/mrtg" --no-down --zero-speed=1000000000 --if-filter='(\$default && \$if_is_ethernet)' public@localhost
+
+# Set execution mode parameters
+# Note: on CentOS7 MRTG is preferably configured as an always running service (for efficiency reasons)
+sed -i -e '/Global Config Options/s/^\(.*\)$/\1\nRunAsDaemon: Yes\nInterval: 5\nNoDetach: Yes/' /etc/mrtg/mrtg.cfg
+
+# Setup MRTG index page
+indexmaker --output=/var/www/mrtg/index.html /etc/mrtg/mrtg.cfg
+
+# Enable MRTG
+# Note: MRTG is an always running service (for efficiency reasons) now
+systemctl enable mrtg
+systemctl start mrtg
 
 # Saving installation instructions
 # Note: done in rc.ks1stboot since this seems to get created after all post scripts are run
