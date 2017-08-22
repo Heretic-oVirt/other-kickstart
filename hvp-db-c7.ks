@@ -883,7 +883,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082202"
+script_version="2017082203"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1751,7 +1751,7 @@ case "${dbtype}" in
 		systemctl disable mysqld
 
 		# Add Apache alias for phpPgAdmin
-		# Note: further phpPgAdmin access control configuration performed in rc.db-conf script
+		# Note: further phpPgAdmin access control configuration performed in rc.db-provision script
 		echo -e -n "\nAlias /sql /usr/share/phpPgAdmin\n" >> /etc/httpd/conf.d/phpPgAdmin.conf
 		# Enable access through phpPgAdmin
 		sed -i -e "/extra_login_security/s/true/false/" /etc/phpPgAdmin/config.inc.php
@@ -1889,7 +1889,7 @@ case "${dbtype}" in
 		sed -i -e 's%^/var/lib/mysql/mysqld.log%/var/log/mysqld.log /var/log/mysqld-slow.log%' -e 's/^\(\s*\)postrotate.*$/\1sharedscripts\n\1postrotate/' /etc/logrotate.d/mysql
 		
 		# Add Apache alias for phpMyAdmin
-		# Note: further phpMyAdmin access control configuration performed in rc.db-conf script
+		# Note: further phpMyAdmin access control configuration performed in rc.db-provision script
 		echo -e -n "\nAlias /sql /usr/share/phpMyAdmin\n" >> /etc/httpd/conf.d/phpMyAdmin.conf
 		# Note: using haveged to ensure enough entropy (but rngd could be already running from installation environment)
 		# Note: starting service manually since systemd inside a chroot would need special treatment
