@@ -2,8 +2,7 @@
 
 # Install with commandline (see below for comments):
 # TODO: check each and every custom "hvp_" parameter below for overlap with default dracut/anaconda parameters and convert to using those instead
-# TODO: switch to HTTPS as soon as a non-self-signed certificate will be available
-# nomodeset elevator=deadline ip=nicname:dhcp inst.ks=http://dangerous.ovirt.life/hvp-repos/el7/ks/hvp-db-c7.ks
+# nomodeset elevator=deadline ip=nicname:dhcp inst.ks=https://dangerous.ovirt.life/hvp-repos/el7/ks/hvp-db-c7.ks
 # Note: nicname is the name of the network interface to be used for installation (eg: ens32) - DHCP is assumed available on that network
 # Note: to force custom/predictable nic names add ifname=netN:AA:BB:CC:DD:EE:FF where netN is the desired nic name and AA:BB:CC:DD:EE:FF is the MAC address of the corresponding physical interface
 # Note: alternatively, to force legacy nic names (ethN), add biosdevname=0 net.ifnames=0
@@ -62,8 +61,7 @@ cdrom
 # alternatively specify a NFS network share as in:
 # nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
 # or an HTTP/FTP area as in:
-# TODO: switch to HTTPS as soon as a non-self-signed certificate will be available
-#url --url http://dangerous.ovirt.life/hvp-repos/el7/os
+#url --url https://dangerous.ovirt.life/hvp-repos/el7/os
 
 # System localization configuration dynamically generated in pre section below
 %include /tmp/full-localization
@@ -104,8 +102,7 @@ selinux --enforcing
 # Explicitly list provided repositories
 # Note: no additional repos setup - further packages/updates installed manually in post section
 #repo --name="CentOS"  --baseurl=cdrom:sr0 --cost=100
-# TODO: switch to HTTPS as soon as a non-self-signed certificate will be available
-#repo --name="HVP-mirror" --baseurl=http://dangerous.ovirt.life/hvp-repos/el7/os
+#repo --name="HVP-mirror" --baseurl=https://dangerous.ovirt.life/hvp-repos/el7/os
 
 # Packages list - package groups are preceded by an "@" sign - excluded packages by an "-" sign
 # Note: some virtualization technologies (VMware, Parallels, VirtualBox) require gcc, kernel-devel and dkms (from external repo) packages
@@ -927,7 +924,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082207"
+script_version="2017082501"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1029,8 +1026,7 @@ EOF
 chmod 644 /etc/yum.repos.d/webmin.repo
 
 # Add our own repo
-# TODO: switch to HTTPS as soon as a non-self-signed certificate will be available
-wget -P /etc/yum.repos.d/ http://dangerous.ovirt.life/hvp-repos/el7/HVP.repo
+wget -P /etc/yum.repos.d/ https://dangerous.ovirt.life/hvp-repos/el7/HVP.repo
 chmod 644 /etc/yum.repos.d/HVP.repo
 
 # Disable mirrorlists and use baseurls only (better utilization of our proxy cache)
@@ -2140,14 +2136,14 @@ elif dmidecode -s system-manufacturer | grep -q 'Xen' ; then
 	EOM
 	chmod 644 /etc/sysctl.d/99-xen-guest.conf
 	sysctl -p
-	wget --no-check-certificate https://dangerous.ovirt.life/support/Xen/xe-guest-utilities*.rpm
+	wget https://dangerous.ovirt.life/support/Xen/xe-guest-utilities*.rpm
 	yum -y --nogpgcheck install ./xe-guest-utilities*.rpm
 	rm -f xe-guest-utilities*.rpm
 elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
 	# Note: VMware basic support uses distro-provided packages installed during post phase
 	# Note: open-vm-tools packages do not include shared folders support - installing upstream VMwareTools here
 	# Note: the upstream VMwareTools installation should not override what already provided by open-vm-tools (verified on version 9.9.3)
-	wget --no-check-certificate -O - https://dangerous.ovirt.life/support/VMware/VMwareTools.tar.gz | tar xzf -
+	wget -O - https://dangerous.ovirt.life/support/VMware/VMwareTools.tar.gz | tar xzf -
 	pushd vmware-tools-distrib
 	./vmware-install.pl -d
 	popd
@@ -2155,14 +2151,14 @@ elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
 	rm -rf vmware-tools-distrib
 	need_reboot="yes"
 elif dmidecode -s system-manufacturer | grep -q "innotek" ; then
-	wget --no-check-certificate https://dangerous.ovirt.life/support/VirtualBox/VBoxLinuxAdditions.run
+	wget https://dangerous.ovirt.life/support/VirtualBox/VBoxLinuxAdditions.run
 	chmod a+rx VBoxLinuxAdditions.run
 	./VBoxLinuxAdditions.run --nox11
 	usermod -a -G vboxsf mwtouser
 	rm -f VBoxLinuxAdditions.run
 	need_reboot="yes"
 elif dmidecode -s system-manufacturer | grep -q "Parallels" ; then
-	wget --no-check-certificate https://dangerous.ovirt.life/support/Parallels/ParallelsTools.tar.gz | tar xzf -
+	wget https://dangerous.ovirt.life/support/Parallels/ParallelsTools.tar.gz | tar xzf -
 	pushd parallels-tools-distrib
 	./install --install-unattended-with-deps
 	popd
