@@ -995,7 +995,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082605"
+script_version="2017082606"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1569,24 +1569,6 @@ if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parall
 	systemctl disable smartd
 fi
 
-# TODO: Configure NUT
-# Note: the oVirt based setup has VMs shutting down internally, referring NUT to Engine which in turn tracks actual UPS through host nodes
-# Note: the RHCS based setup has VMs shut down externally (as cluster resources) by nodes which in turn tracks actual UPS directly
-if dmidecode -s system-manufacturer | grep -q "oVirt" ; then
-	sed -i -e 's/^MODE=.*$/MODE=netclient/' /etc/ups/nut.conf
-
-	#cat <<- EOF >> /etc/ups/upsmon.conf
-	#
-	#MONITOR ups1@${engine_name}.${domain_name['mgmt']} 1 upsmon test slave
-	#MONITOR ups2@${engine_name}.${domain_name['mgmt']} 1 upsmon test slave
-	#MONITOR ups3@${engine_name}.${domain_name['mgmt']} 1 upsmon test slave
-	#
-	#EOF
-	
-	# TODO: Enable NUT
-	#systemctl enable ups
-fi
-
 # Configure Net-SNMP
 cp -a /etc/snmp/snmpd.conf /etc/snmp/snmpd.conf.orig
 cat << EOF > /etc/snmp/snmpd.conf
@@ -1875,7 +1857,7 @@ if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Par
 	systemctl enable mcelog
 fi
 
-# TODO: Configure Bacula/Bareos
+# TODO: Configure Bareos
 
 # TODO: Enable Bareos
 systemctl disable bareos-fd
