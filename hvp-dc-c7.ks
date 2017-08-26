@@ -859,13 +859,18 @@ chmod 600 /etc/samba/rsync-sysvol.secret
 chown root:root /etc/samba/rsync-sysvol.secret
 if [ "${domain_join}" = "true" ]; then
 	action="joining"
-	# Make sure to sync only with first DC time reference (emulate Windows behaviour, assuming the our first DC always keeps the PDC emulator FSMO role)
-	echo "${my_nameserver}" > /etc/ntp/step-tickers
+	# Make sure to sync only with the proper time reference (emulate Windows behaviour, using as reference the DC holding the PDC emulator FSMO role)
+	domain_pdc_emulator=\$(dig _ldap._tcp.pdc._msdcs.${domain_name[${my_zone}]} SRV +short)
+	# Note: if we failed to get the PDC emulator, then assume that the given nameserver is a proper reference
+	if [ -z "${domain_pdc_emulator}" ]; then
+		domain_pdc_emulator="${my_nameserver}"
+	fi
+	echo "${domain_pdc_emulator}" > /etc/ntp/step-tickers
 	sed -i -e '/^server\\s/^/#/g' /etc/ntp.conf
 	cat <<- EOM >> /etc/ntp.conf
 
 	# Always sync with our first AD DC server only
-	server ${my_nameserver} iburst
+	server ${domain_pdc_emulator} iburst
 
 	EOM
 	# Stop NTPd
@@ -915,9 +920,9 @@ if [ \${res} -eq 0 ]; then
 
 	EOM
 	if [ "${domain_join}" = "true" ]; then
-		# Copy /var/lib/samba/private/idmap.ldb from first DC to keep BUILTIN ids aligned
+		# Copy /var/lib/samba/private/idmap.ldb from PDC emulator to keep BUILTIN ids aligned
 		rm -f /var/lib/samba/private/idmap.ldb
-		rsync -XAavz --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@${my_nameserver}/SysVolRepl/idmap.ldb /var/lib/samba/private/
+		rsync -XAavz --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@${domain_pdc_emulator}/SysVolRepl/idmap.ldb /var/lib/samba/private/
 		restorecon -v /var/lib/samba/private/idmap.ldb
 		# Reset sysvol ACLs 
 		samba-tool ntacl sysvolreset
@@ -1010,8 +1015,8 @@ cat << EOF >> rc.samba-dc
 	else
 		# Setup an rsync cron job for sysvol replication
 		cat <<- EOM > /etc/cron.d/sysvol-replication
-		# Run unidirectional sysvol replication from first AD DC once every 5 minutes
-		*/5 * * * * root rsync -XAavz --delete-after --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@${my_nameserver}/SysVol/ /var/lib/samba/sysvol/ > /var/log/samba/sysvol-replication.log 2>&1
+		# Run unidirectional sysvol replication from PDC emulator once every 5 minutes
+		*/5 * * * * root rsync -XAavz --delete-after --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@${domain_pdc_emulator}/SysVol/ /var/lib/samba/sysvol/ > /var/log/samba/sysvol-replication.log 2>&1
 		EOM
 		chmod 644 /etc/cron.d/sysvol-replication
 	fi
@@ -1060,7 +1065,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082604"
+script_version="2017082606"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1207,19 +1212,9 @@ yum -y install webmin
 # Install custom Samba packages with AD DC support from our own repo and related utilities
 yum -y --enablerepo hvp-samba-dc install samba-dc samba-common-tools samba-client rsync
 
-# Install Network UPS Tools
-# Note: the oVirt based setup has VMs shutting down internally, referring NUT to Engine which in turn tracks actual UPS through host nodes
-# Note: the RHCS based setup has VMs shut down externally (as cluster resources) by nodes which in turn tracks actual UPS directly
-if dmidecode -s system-manufacturer | grep -q "oVirt" ; then
-	yum -y install nut-client
-fi
-
 # Install Bareos client (file daemon + console)
-# TODO: using our repo (together with Repoforge-Extras) to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
-yum -y --enablerepo rpmforge-extras install bareos-client
-
-# Restrict RepoForge Extras repo to Bareos dependencies only
-yum-config-manager --save --setopt='rpmforge-extras.includepkgs=lzo*' > /dev/null
+# TODO: using our repo to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
+yum -y install bareos-client
 
 # Install virtualization tools support packages
 # TODO: find a way to enable some virtualization technologies (VMware, Parallels, VirtualBox) on a server machine without development support packages
@@ -1419,6 +1414,7 @@ fi
 #echo 'UTC' >> /etc/adjtime
 
 # Configure NTP time synchronization (immediate hardware synch, add initial time adjusting from given server)
+# Note: further configuration fragment created in pre section above and copied in post section below
 sed -i -e 's/^SYNC_HWCLOCK=.*$/SYNC_HWCLOCK="yes"/' /etc/sysconfig/ntpdate
 echo "0.centos.pool.ntp.org" > /etc/ntp/step-tickers
 
@@ -1452,7 +1448,7 @@ semodule -i myntpdate.pp
 popd
 
 # Configure NTPd
-# Note: Configuration fragment to add NTP service for local clients generated in pre section above and appended in third post section below
+# Note: configuration fragment to add NTP service for local clients generated in pre section above and appended in third post section below
 
 # Add safeguard for NTP on virtual machines
 if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
@@ -1621,24 +1617,6 @@ sed -i -e 's/^/#/' /etc/libreport/events.d/mailx_event.conf
 # Disable SMARTd on a virtual machine
 if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
 	systemctl disable smartd
-fi
-
-# TODO: Configure NUT
-# Note: the oVirt based setup has VMs shutting down internally, referring NUT to Engine which in turn tracks actual UPS through host nodes
-# Note: the RHCS based setup has VMs shut down externally (as cluster resources) by nodes which in turn tracks actual UPS directly
-if dmidecode -s system-manufacturer | grep -q "oVirt" ; then
-	sed -i -e 's/^MODE=.*$/MODE=netclient/' /etc/ups/nut.conf
-
-	#cat <<- EOF >> /etc/ups/upsmon.conf
-	#
-	#MONITOR ups1@${engine_name}.${domain_name['mgmt']} 1 upsmon test slave
-	#MONITOR ups2@${engine_name}.${domain_name['mgmt']} 1 upsmon test slave
-	#MONITOR ups3@${engine_name}.${domain_name['mgmt']} 1 upsmon test slave
-	#
-	#EOF
-	
-	# TODO: Enable NUT
-	#systemctl enable ups
 fi
 
 # Configure Net-SNMP
@@ -1927,7 +1905,7 @@ if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Par
 	systemctl enable mcelog
 fi
 
-# TODO: Configure Bacula/Bareos
+# TODO: Configure Bareos
 
 # TODO: Enable Bareos
 systemctl disable bareos-fd
