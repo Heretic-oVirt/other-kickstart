@@ -28,6 +28,12 @@ mtu['lan']="1500"
 domain_name['mgmt']="mgmt.private"
 domain_name['lan']="lan.private"
 
+domain_join="false"
+
+sysvolrepl_password="HVP_dem0"
+
+# Note: when creating the first DC, this value will be never used (and will be discarded) after installation
+# Note: when creating further DCs, this value will be used for initial and recurring sysvol-related replications from first DC (so it should point to the first DC)
 my_nameserver="8.8.8.8"
 
 my_forwarders="8.8.8.8"
@@ -38,5 +44,7 @@ my_name="spike"
 root_password="HVP_dem0"
 admin_username="hvpadmin"
 admin_password="HVP_dem0"
+# Note: the default AD further admin username will be teh admin username above prfixed with the "ad" string
+winadmin_password="HVP_dem0"
 keyboard_layout="us"
 local_timezone="UTC"
