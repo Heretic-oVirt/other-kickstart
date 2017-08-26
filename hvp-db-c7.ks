@@ -16,7 +16,7 @@
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
 # Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
 # Note: to force custom database type add hvp_dbtype=dddd where dddd is the database type (either postgresql, mysql, firebird or sqlserver)
-# Note: to force custom nameserver IP (during installation) add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
+# Note: to force custom nameserver IP add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
 # Note: to force custom forwarders IPs add hvp_forwarders=forw0,forw1,forw2 where forwN are the forwarders IPs
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
 # Note: to force custom DC naming add hvp_dcname=mydcname where mydcname is the unqualified (ie without domain name part) hostname of the DC
@@ -32,7 +32,7 @@
 # Note: the default machine IPs are assumed to be the 220th IPs available (network address + 220) on each connected network
 # Note: the default domain names are assumed to be {mgmt,lan}.private
 # Note: the default database type is postgresql
-# Note: the default nameserver IP is assumed to be 8.8.8.8 during installation (afterwards it will be switched to 127.0.0.1 unconditionally)
+# Note: the default nameserver IP is assumed to be 8.8.8.8
 # Note: the default forwarder IP is assumed to be 8.8.8.8
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
 # Note: the default DC naming uses the "My Little Pony" character name spike for the DC
@@ -924,7 +924,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082501"
+script_version="2017082601"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
