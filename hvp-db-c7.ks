@@ -15,14 +15,16 @@
 # Note: to force custom IPs add hvp_{mgmt,lan}_my_ip=t.t.t.t where t.t.t.t is the chosen IP on the given network
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
 # Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
+# Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an AD domain) or "false" (do not join an AD domain)
 # Note: to force custom database type add hvp_dbtype=dddd where dddd is the database type (either postgresql, mysql, firebird or sqlserver)
 # Note: to force custom nameserver IP add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
 # Note: to force custom forwarders IPs add hvp_forwarders=forw0,forw1,forw2 where forwN are the forwarders IPs
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
-# Note: to force custom DC naming add hvp_dcname=mydcname where mydcname is the unqualified (ie without domain name part) hostname of the DC
 # Note: to force custom root password add hvp_rootpwd=mysecret where mysecret is the root user password
 # Note: to force custom admin username add hvp_adminname=myadmin where myadmin is the admin username
 # Note: to force custom admin password add hvp_adminpwd=myothersecret where myothersecret is the admin user password
+# Note: to force custom AD further admin username add hvp_winadminname=mywinadmin where mywinadmin is the further AD admin username
+# Note: to force custom AD further admin password add hvp_winadminpwd=mywinothersecret where mywinothersecret is the further AD admin user password
 # Note: to force custom keyboard layout add hvp_kblayout=cc where cc is the country code
 # Note: to force custom local timezone add hvp_timezone=VV where VV is the timezone specification
 # Note: the default behaviour does not register fixed nic name-to-MAC mapping
@@ -31,14 +33,16 @@
 # Note: the default MTU is assumed to be 1500 on {mgmt,lan}
 # Note: the default machine IPs are assumed to be the 220th IPs available (network address + 220) on each connected network
 # Note: the default domain names are assumed to be {mgmt,lan}.private
+# Note: the default domain action is "false" (do not join an AD domain)
 # Note: the default database type is postgresql
 # Note: the default nameserver IP is assumed to be 8.8.8.8
 # Note: the default forwarder IP is assumed to be 8.8.8.8
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
-# Note: the default DC naming uses the "My Little Pony" character name spike for the DC
 # Note: the default root user password is HVP_dem0
 # Note: the default admin username is hvpadmin
 # Note: the default admin user password is HVP_dem0
+# Note: the default AD further admin username is the same as the admin username with the string "ad" prefixed
+# Note: the default AD further admin user password is HVP_dem0
 # Note: the default keyboard layout is us
 # Note: the default local timezone is UTC
 # Note: to work around a known kernel commandline length limitation, all hvp_* parameters above can be omitted and proper default values (overriding the hardcoded ones) can be placed in Bash-syntax variables-definition files placed alongside the kickstart file - the name of the files retrieved and sourced (in the exact order) is: hvp_parameters.sh hvp_parameters_db.sh hvp_parameters_hh:hh:hh:hh:hh:hh.sh (where hh:hh:hh:hh:hh:hh is the MAC address of the nic used to retrieve the kickstart file, if specified with the ip=nicname:... option)
@@ -211,6 +215,7 @@ unset netmask
 unset network_base
 unset mtu
 unset domain_name
+unset domain_join
 unset dbtype
 unset reverse_domain_name
 unset test_ip
@@ -220,18 +225,19 @@ unset my_name
 unset my_nameserver
 unset my_forwarders
 unset my_gateway
-unset dcname
 unset root_password
 unset admin_username
 unset admin_password
+unset winadmin_username
+unset winadmin_password
 unset keyboard_layout
 unset local_timezone
 
 # Hardcoded defaults
 
-dbtype="postgresql"
-
 nicmacfix="false"
+
+dbtype="postgresql"
 
 # Note: IP offsets below get used to automatically derive IP addresses
 # Note: no need to allow offset overriding from commandline if the IP address itself can be specified
@@ -239,7 +245,7 @@ nicmacfix="false"
 # Note: the following can be overridden from commandline
 test_ip_offset="1"
 
-my_ip_offset="221"
+my_ip_offset="230"
 
 declare -A network netmask network_base mtu
 network['mgmt']="172.20.10.0"
@@ -255,6 +261,8 @@ declare -A domain_name
 domain_name['mgmt']="mgmt.private"
 domain_name['lan']="lan.private"
 
+domain_join="false"
+
 declare -A reverse_domain_name
 reverse_domain_name['mgmt']="10.20.172.in-addr.arpa"
 reverse_domain_name['lan']="12.20.172.in-addr.arpa"
@@ -267,8 +275,6 @@ my_nameserver="8.8.8.8"
 my_forwarders="8.8.8.8"
 
 my_name="bigmcintosh"
-
-dcname="spike"
 
 # Note: passwords must meet the DB complexity requirements
 root_password="HVP_dem0"
@@ -423,6 +429,21 @@ if [ -n "${given_admin_password}" ]; then
 	admin_password="${given_admin_password}"
 fi
 
+# Determine AD further admin username
+given_winadmin_username=$(sed -n -e "s/^.*hvp_winadminname=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_winadmin_username}" ]; then
+	winadmin_username="${given_winadmin_username}"
+fi
+if [ -z "${winadmin_username}" ]; then
+	winadmin_username="ad${admin_username}"
+fi
+
+# Determine AD further admin password
+given_winadmin_password=$(sed -n -e "s/^.*hvp_winadminpwd=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_winadmin_password}" ]; then
+	winadmin_password="${given_winadmin_password}"
+fi
+
 # Determine keyboard layout
 given_keyboard_layout=$(sed -n -e "s/^.*hvp_kblayout=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_keyboard_layout}" ]; then
@@ -445,6 +466,12 @@ fi
 given_hostname=$(sed -n -e 's/^.*hvp_myname=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_hostname}" | grep -q '^[[:alnum:]]\+$' ; then
 	my_name="${given_hostname}"
+fi
+
+# Determine domain action
+given_joindomain=$(sed -n -e 's/^.*hvp_joindomain=\(\S*\).*$/\1/p' /proc/cmdline)
+if echo "${given_joindomain}" | egrep -q '^(true|false)$' ; then
+	domain_join="${given_joindomain}"
 fi
 
 # Determine database type
@@ -471,12 +498,6 @@ fi
 given_gateway=$(sed -n -e "s/^.*hvp_gateway=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_gateway}" ]; then
 	my_gateway="${given_gateway}"
-fi
-
-# Determine DC hostname
-given_dcname=$(sed -n -e 's/^.*hvp_dcname=\(\S*\).*$/\1/p' /proc/cmdline)
-if echo "${given_dcname}" | grep -q '^[[:alnum:]]\+$' ; then
-	dcname="${given_dcname}"
 fi
 
 # Determine network segments parameters
@@ -731,14 +752,22 @@ fi
 # Prepare NTPdate and Chrony configuration fragments to be appended later on below
 mkdir -p /tmp/hvp-ntpd-conf
 pushd /tmp/hvp-ntpd-conf
-cat << EOF > step-tickers
-${dcname}.${domain_name[${my_zone}]}
-EOF
-cat << EOF > chrony.conf
+if [ "${domain_join}" = "true" ]; then
+	# Make sure to sync only with the proper time reference (emulate Windows behaviour, using as reference the DC holding the PDC emulator FSMO role)
+	ntp_server=\$(dig _ldap._tcp.pdc._msdcs.${domain_name[${my_zone}]} SRV +short)
+	# Note: if we failed to get the PDC emulator, then assume that the given nameserver is a proper reference
+	if [ -z "${ntp_server}" ]; then
+		ntp_server="${my_nameserver}"
+	fi
+	cat <<- EOF > chrony.conf
 
-server ${dcname}.${domain_name[${my_zone}]} iburst
+	server ${ntp_server} iburst
 
-EOF
+	EOF
+else
+	ntp_server="0.centos.pool.ntp.org"
+fi
+echo "${ntp_server}" > step-tickers
 popd
 
 # Prepare hosts file to be copied later on below
@@ -772,6 +801,48 @@ ALL: ${allowed_addr}
 sshd: ALL
 
 EOF
+
+# Create AD domain joining script
+if [ "${domain_join}" = "true" ]; then
+	mkdir -p /tmp/hvp-domain-join
+	pushd /tmp/hvp-domain-join
+	realm_name=$(echo ${domain_name[${my_zone}]} | awk '{print toupper($0)}')
+	cat <<- EOF > rc.domain-join
+	#!/bin/bash
+	# Setup krb5.conf properly
+	sed -i -e "s/^\\\\(\\\\s*\\\\)\\\\(dns_lookup_realm\\\\s*=.*\\\\)\\$/\\\\1\\\\2\n\\\\1dns_lookup_kdc = true\\\\n\\\\1default_realm = ${realm_name}/" /etc/krb5.conf
+	# Perform Kerberos authentication to allow unattended join below
+	cat <<- EOM | expect -f -
+	set force_conservative 1
+	
+	if {\$force_conservative} {
+		set send_slow {1 .1}
+		proc send {ignore arg} {
+			sleep .1
+			exp_send -s -- \\$arg
+		}
+	}
+	
+	set timeout -1
+	spawn "kinit" "${winadmin_username}@${realm_name}"
+	match_max 100000
+	expect -re "Password for.*:.*\\\$"
+	send -- "${winadmin_password}\\\\r"
+	expect eof
+	EOM
+	res=\$?
+	if [ \${res} -ne 0 ]; then
+		# Report script ending
+		logger -s -p "local7.err" -t "rc.domain-join" "Exiting join (failed Kerberos authentication with join credentials)"
+		exit \${res}
+	else
+		klist
+		realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) ${domain_name[${my_zone}]}
+		kdestroy
+	fi
+	EOF
+	popd
+fi
 
 # Create database provisioning script
 mkdir -p /tmp/hvp-db-conf
@@ -924,7 +995,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082601"
+script_version="2017082605"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1079,6 +1150,9 @@ yum -y install webalizer mrtg net-snmp net-snmp-utils
 # Install Webmin
 yum -y install webmin
 
+# Install needed packages to join AD domain
+yum -y install sssd-ad realmd adcli krb5-workstation samba-common
+
 # Install database packages
 case "${dbtype}" in
 	postgresql)
@@ -1149,19 +1223,9 @@ case "${dbtype}" in
 		;;
 esac
 
-# Install Network UPS Tools
-# Note: the oVirt based setup has VMs shutting down internally, referring NUT to Engine which in turn tracks actual UPS through host nodes
-# Note: the RHCS based setup has VMs shut down externally (as cluster resources) by nodes which in turn tracks actual UPS directly
-if dmidecode -s system-manufacturer | grep -q "oVirt" ; then
-	yum -y install nut-client
-fi
-
 # Install Bareos client (file daemon + console)
-# TODO: using our repo (together with Repoforge-Extras) to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
-yum -y --enablerepo rpmforge-extras install bareos-client
-
-# Restrict RepoForge Extras repo to Bareos dependencies only
-yum-config-manager --save --setopt='rpmforge-extras.includepkgs=lzo*' > /dev/null
+# TODO: using our repo to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
+yum -y install bareos-client
 
 # Install virtualization tools support packages
 # TODO: find a way to enable some virtualization technologies (VMware, Parallels, VirtualBox) on a server machine without development support packages
@@ -1364,7 +1428,7 @@ fi
 # Note: further configuration fragment created in pre section above and copied in post section below
 sed -i -e 's/^SYNC_HWCLOCK=.*$/SYNC_HWCLOCK="yes"/' /etc/sysconfig/ntpdate
 
-# Allow NTPdate hardware clock synch through SELinux
+# Allow NTPdate hardware clock sync through SELinux
 # Note: obtained by means of: cat /var/log/audit/audit.log | audit2allow -M myntpdate
 # TODO: remove when SELinux policy fixed upstream
 mkdir -p /etc/selinux/local
@@ -1701,7 +1765,7 @@ EOF
 chmod 644 /var/www/html/index.html
 
 # Configure Webalizer (allow access from everywhere)
-sed -i -e 's/^\(\s*\)\(Require local.*\)$/\1#\2/' /etc/httpd/conf.d/webalizer.conf
+sed -i -e 's/^\(\s*\)\(Require local.*\)$/\1Require all granted/' /etc/httpd/conf.d/webalizer.conf
 
 # Enable Webalizer
 sed -i -e '/WEBALIZER_CRON=/s/^#*\(WEBALIZER_CRON=\).*$/\1yes/' /etc/sysconfig/webalizer
@@ -2210,6 +2274,11 @@ if [ -x /etc/rc.d/rc.users-setup ]; then
 	/etc/rc.d/rc.users-setup
 fi
 
+# Run AD domain joining script
+if [ -x /etc/rc.d/rc.domain-join ]; then
+	/etc/rc.d/rc.domain-join
+fi
+
 # Run database provisioning actions
 if [ -x /etc/rc.d/rc.db-provision ]; then
 	/etc/rc.d/rc.db-provision
@@ -2272,7 +2341,9 @@ if [ -s /tmp/hvp-ntpd-conf/step-tickers ]; then
 fi
 
 # Append Chrony configuration fragment (generated in pre section above) into installed system
+# Note: if we specify additional Chrony configuration, then all default servers get disabled
 if [ -s /tmp/hvp-ntpd-conf/chrony.conf ]; then
+	sed -i -e '/^server\\s/^/#/g' /mnt/sysimage/etc/chrony.conf
 	cat /tmp/hvp-ntpd-conf/chrony.conf >> /mnt/sysimage/etc/chrony.conf
 fi
 
@@ -2281,6 +2352,14 @@ if [ -f /tmp/hvp-users-conf/rc.users-setup ]; then
 	cp /tmp/hvp-users-conf/rc.users-setup /mnt/sysimage/etc/rc.d/rc.users-setup
 	chmod 755 /mnt/sysimage/etc/rc.d/rc.users-setup
 	chown root:root /mnt/sysimage/etc/rc.d/rc.users-setup
+fi
+
+# Copy AD domain joining script (generated in pre section above) into installed system
+if [ -s /tmp/hvp-domain-join/rc.domain-join ]; then
+	cp /tmp/hvp-domain-join/rc.domain-join /mnt/sysimage/etc/rc.d/rc.domain-join
+	# Note: cleartext passwords contained - must restrict access
+	chmod 700 /mnt/sysimage/etc/rc.d/rc.domain-join
+	chown root:root /mnt/sysimage/etc/rc.d/rc.domain-join
 fi
 
 # Copy database configuration script (generated in pre section above) into installed system
