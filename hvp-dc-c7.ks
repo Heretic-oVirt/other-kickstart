@@ -16,6 +16,8 @@
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
 # Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
 # Note: to force custom NetBIOS domain naming add hvp_netbiosdomain=MYDOM where MYDOM is the NetBIOS domain name
+# Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an existing domain) or "false" (create a new domain/forest)
+# Note: to force custom sysvol replication password add hvp_sysvolpassword=mysysvolsecret where mysysvolsecret is the sysvol replication password
 # Note: to force custom nameserver IP (during installation) add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
 # Note: to force custom forwarders IPs add hvp_forwarders=forw0,forw1,forw2 where forwN are the forwarders IPs
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
@@ -24,6 +26,8 @@
 # Note: to force custom root password add hvp_rootpwd=mysecret where mysecret is the root user password
 # Note: to force custom admin username add hvp_adminname=myadmin where myadmin is the admin username
 # Note: to force custom admin password add hvp_adminpwd=myothersecret where myothersecret is the admin user password
+# Note: to force custom AD further admin username add hvp_winadminname=mywinadmin where mywinadmin is the further AD admin username
+# Note: to force custom AD further admin password add hvp_winadminpwd=mywinothersecret where mywinothersecret is the further AD admin user password
 # Note: to force custom keyboard layout add hvp_kblayout=cc where cc is the country code
 # Note: to force custom local timezone add hvp_timezone=VV where VV is the timezone specification
 # Note: the default behaviour does not register fixed nic name-to-MAC mapping
@@ -33,6 +37,8 @@
 # Note: the default machine IPs are assumed to be the 220th IPs available (network address + 220) on each connected network
 # Note: the default domain names are assumed to be {mgmt,lan}.private
 # Note: the default NetBIOS domain name is equal to the first part of the DNS domain name of the lan network (or mgmt if there is only one network) in uppercase
+# Note: the default domain action is "false" (create a new domain/forest)
+# Note: the default sysvol replication password is HVP_dem0
 # Note: the default nameserver IP is assumed to be 8.8.8.8 during installation (afterwards it will be switched to 127.0.0.1 unconditionally)
 # Note: the default forwarder IP is assumed to be 8.8.8.8
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
@@ -41,6 +47,8 @@
 # Note: the default root user password is HVP_dem0
 # Note: the default admin username is hvpadmin
 # Note: the default admin user password is HVP_dem0
+# Note: the default AD further admin username is the same as the admin username with the string "ad" prefixed
+# Note: the default AD further admin user password is HVP_dem0
 # Note: the default keyboard layout is us
 # Note: the default local timezone is UTC
 # Note: to work around a known kernel commandline length limitation, all hvp_* parameters above can be omitted and proper default values (overriding the hardcoded ones) can be placed in Bash-syntax variables-definition files placed alongside the kickstart file - the name of the files retrieved and sourced (in the exact order) is: hvp_parameters.sh hvp_parameters_dc.sh hvp_parameters_hh:hh:hh:hh:hh:hh.sh (where hh:hh:hh:hh:hh:hh is the MAC address of the nic used to retrieve the kickstart file, if specified with the ip=nicname:... option)
@@ -218,6 +226,8 @@ unset network_base
 unset mtu
 unset domain_name
 unset netbios_domain_name
+unset domain_join
+unset sysvolrepl_password
 unset reverse_domain_name
 unset test_ip
 unset test_ip_offset
@@ -231,6 +241,8 @@ unset my_gateway
 unset root_password
 unset admin_username
 unset admin_password
+unset winadmin_username
+unset winadmin_password
 unset keyboard_layout
 unset local_timezone
 
@@ -269,6 +281,10 @@ declare -A domain_name
 domain_name['mgmt']="mgmt.private"
 domain_name['lan']="lan.private"
 
+domain_join="false"
+
+sysvolrepl_password="HVP_dem0"
+
 declare -A reverse_domain_name
 reverse_domain_name['mgmt']="10.20.172.in-addr.arpa"
 reverse_domain_name['lan']="12.20.172.in-addr.arpa"
@@ -286,6 +302,7 @@ my_name="spike"
 root_password="HVP_dem0"
 admin_username="hvpadmin"
 admin_password="HVP_dem0"
+winadmin_password="HVP_dem0"
 keyboard_layout="us"
 local_timezone="UTC"
 
@@ -457,6 +474,21 @@ if [ -n "${given_admin_password}" ]; then
 	admin_password="${given_admin_password}"
 fi
 
+# Determine AD further admin username
+given_winadmin_username=$(sed -n -e "s/^.*hvp_winadminname=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_winadmin_username}" ]; then
+	winadmin_username="${given_winadmin_username}"
+fi
+if [ -z "${winadmin_username}" ]; then
+	winadmin_username="ad${admin_username}"
+fi
+
+# Determine AD further admin password
+given_winadmin_password=$(sed -n -e "s/^.*hvp_winadminpwd=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_winadmin_password}" ]; then
+	winadmin_password="${given_winadmin_password}"
+fi
+
 # Determine keyboard layout
 given_keyboard_layout=$(sed -n -e "s/^.*hvp_kblayout=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_keyboard_layout}" ]; then
@@ -485,6 +517,18 @@ fi
 given_netbiosdomain=$(sed -n -e 's/^.*hvp_netbiosdomain=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_netbiosdomain}" | grep -q '^[[:alnum:]]\+$' ; then
 	netbios_domain_name=$(echo "${given_netbiosdomain}" | awk '{print toupper($0)}')
+fi
+
+# Determine domain action
+given_joindomain=$(sed -n -e 's/^.*hvp_joindomain=\(\S*\).*$/\1/p' /proc/cmdline)
+if echo "${given_joindomain}" | egrep -q '^(true|false)$' ; then
+	domain_join="${given_joindomain}"
+fi
+
+# Determine sysvol replication password
+given_sysvolrepl_password=$(sed -n -e "s/^.*hvp_sysvolpassword=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_sysvolrepl_password}" ]; then
+	sysvolrepl_password="${given_sysvolrepl_password}"
 fi
 
 # Determine nameserver address
@@ -801,16 +845,53 @@ sshd: ALL
 
 EOF
 
-# Create Samba AD DC domain provisioning script (add further DNS entries creation, forwarders adding etc.)
+# Create Samba AD DC domain joining/provisioning script
 mkdir -p /tmp/hvp-samba-conf
 pushd /tmp/hvp-samba-conf
-cat << EOF > rc.samba-dc-provision
+realm_name=$(echo ${domain_name[${my_zone}]} | awk '{print toupper($0)}')
+cat << EOF > rc.samba-dc
 #!/bin/bash
-# Clean up any previous setting
-rm -f /etc/krb5.* /etc/samba/smb.conf
-# Perform domain provisioning
-samba-tool domain provision --use-rfc2307 --realm=$(echo ${domain_name[${my_zone}]} | awk '{print toupper($0)}') --domain=${netbios_domain_name} --server-role=dc --dns-backend=SAMBA_INTERNAL --adminpass=${root_password}
-res=\$?
+# Create secrets file for sysvol replication
+cat << EOM > /etc/samba/rsync-sysvol.secret
+sysvol-replication: ${sysvolrepl_password}
+EOM
+chmod 600 /etc/samba/rsync-sysvol.secret
+chown root:root /etc/samba/rsync-sysvol.secret
+if [ "${domain_join}" = "true" ]; then
+	action="joining"
+	# Make sure to sync only with first DC time reference (emulate Windows behaviour, assuming the our first DC always keeps the PDC emulator FSMO role)
+	echo "${my_nameserver}" > /etc/ntp/step-tickers
+	sed -i -e '/^server\\s/^/#/g' /etc/ntp.conf
+	cat <<- EOM >> /etc/ntp.conf
+
+	# Always sync with our first AD DC server only
+	server ${my_nameserver} iburst
+
+	EOM
+	# Stop NTPd
+	systemctl stop ntpd
+	# Resync time with first AD DC
+	systemctl start ntpdate
+	# Restart NTPd
+	systemctl start ntpd
+	# Setup krb5.conf properly
+	sed -i -e "s/^\\\\(\\\\s*\\\\)\\\\(dns_lookup_realm\\\\s*=.*\\\\)\\$/\\\\1\\\\2\n\\\\1dns_lookup_kdc = true\\\\n\\\\1default_realm = ${realm_name}/" /etc/krb5.conf
+	# Clean up any previous Samba settings
+	rm -f /etc/samba/smb.conf
+	# Perform domain joining
+	# TODO: check options
+	samba-tool domain join ${domain_name[${my_zone}]} DC --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" --username=administrator --password=${root_password}
+	res=\$?
+else
+	# Clean up any previous Kerberos/Samba settings
+	rm -f /etc/krb5.* /etc/samba/smb.conf
+	# Perform domain provisioning
+	# TODO: check options
+	samba-tool domain provision --use-rfc2307 --realm=${realm_name} --domain=${netbios_domain_name} --server-role=dc --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" --adminpass=${root_password}
+	res=\$?
+else
+	action="provisioning"
+fi
 if [ \${res} -eq 0 ]; then
 	# Add DNS forwarders
 	sed -i -e '/^\s*dns\s*forwarder\s*=/d' /etc/samba/smb.conf
@@ -825,34 +906,120 @@ if [ \${res} -eq 0 ]; then
 	restrict default mssntp
 	
 	EOM
+	# Always provide reference to clients
+	cat <<- EOM >> /etc/ntp.conf
+
+	# Always provide reference to clients
+	server 127.127.1.0
+	fudge 127.127.1.0 stratum 8
+
+	EOM
+	if [ "${domain_join}" = "true" ]; then
+		# Copy /var/lib/samba/private/idmap.ldb from first DC to keep BUILTIN ids aligned
+		rm -f /var/lib/samba/private/idmap.ldb
+		rsync -XAavz --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@${my_nameserver}/SysVolRepl/idmap.ldb /var/lib/samba/private/
+		restorecon -v /var/lib/samba/private/idmap.ldb
+		# Reset sysvol ACLs 
+		samba-tool ntacl sysvolreset
+	fi
 	# Enable and start Samba AD DC
 	systemctl --now enable samba-ad-dc
 	# Restart NTPd
 	systemctl restart ntpd
-	# Add DNS reverse zone
-	samba-tool dns zonecreate ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} --username=administrator --password=${root_password}
-	# Add DNS A and PTR records for known machines
-	# Add round-robin-resolved name for CTDB-controlled NFS/CIFS services
-	# TODO: find a way to add A records with a TTL of 1
+	if [ "${domain_join}" != "true" ]; then
+		# Prepare an idmap-db cold backup for further DCs (to keep BUILTIN ids aligned)
+		tdbbackup -s .bak /var/lib/samba/private/idmap.ldb
+		mkdir -p /var/lib/samba/sysvolrepl
+		cp -a /var/lib/samba/private/idmap.ldb.bak /var/lib/samba/sysvolrepl/idmap.ldb
+		# Setup an rsync socket/service for sysvol replication
+		# Note: adapted from https://wiki.samba.org/index.php/Rsync_based_SysVol_replication_workaround
+		# Note: conversion to systemd taken from https://github.com/ioanrogers/systemd-units/blob/master/system/rsync.socket and https://github.com/ioanrogers/systemd-units/blob/master/system/rsync@.service
+		cat <<- EOM > /etc/systemd/system/rsync.socket
+		[Unit]
+		Description = Listen for rsync connections
+
+		[Socket]
+		ListenStream = 873
+		BindToDevice = ${nics[${my_zone}]}
+		Accept = true
+
+		[Install]
+		WantedBy = sockets.target
+		EOM
+		cat <<- EOM > /etc/systemd/system/rsync@.service
+		[Unit]
+		Description = Fast remote file copy program daemon
+		ConditionPathExists = /etc/rsyncd.conf
+		Requires = rsync.socket
+
+		[Service]
+		ExecStart = /usr/bin/rsync --daemon
+		StandardInput = socket
+		IOSchedulingClass = idle
+		Nice = 10
+		CPUSchedulingPolicy = idle
+		EOM
+		chmod 644 /etc/systemd/system/rsync*
+		chown root:root /etc/systemd/system/rsync*
+		# Create Rsync configuration for sysvol replication
+		# Note: the second section will be used only once for each further DC to align BUILTIN ids
+		cat <<- EOM > /etc/rsyncd.conf
+		[SysVol]
+		path = /var/lib/samba/sysvol/
+		comment = Samba Sysvol Share
+		uid = root
+		gid = root
+		read only = yes
+		auth users = sysvol-replication
+		secrets file = /etc/samba/rsync-sysvol.secret
+
+		[SysVolRepl]
+		path = /var/lib/samba/sysvolrepl/
+		comment = Samba Sysvol Replication Support Share
+		uid = root
+		gid = root
+		read only = yes
+		auth users = sysvol-replication
+		secrets file = /etc/samba/rsync-sysvol.secret
+		EOM
+		chmod 644 /etc/rsyncd.conf
+		chown root:root /etc/rsyncd.conf
+		# Add DNS reverse zone
+		samba-tool dns zonecreate ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} --username=administrator --password=${root_password}
+		# Add DNS A and PTR records for known machines
+		# Add round-robin-resolved name for CTDB-controlled NFS/CIFS services
+		# TODO: find a way to add A records with a TTL of 1
 EOF
 for ((i=0;i<${active_storage_node_count};i=i+1)); do
-	cat <<- EOF >> rc.samba-dc-provision
-	        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password=${root_password}
-	        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${domain_name[${my_zone}]} --username=administrator --password=${root_password}
+	cat <<- EOF >> rc.samba-dc
+	            samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password=${root_password}
+	            samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${domain_name[${my_zone}]} --username=administrator --password=${root_password}
 	EOF
 done
-cat << EOF >> rc.samba-dc-provision
-	# Add a group with Unix attributes
-	samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10001 --username=administrator --password=${root_password}
-	# Add an unprivileged user with Unix attributes
-	# Note: newly created users will have default AD primary group set to the "Domain Users" group so it will "map" to (overlap with) the default users Unix group
-	# Note: By default the "Domain Users" group has gidNumber 100
-	# TODO: find a general way to define uid/gid values
-	# TODO: it seems that AD primary group still has precedence and the user does not belong to the UnixUsers group above - find out why
-	samba-tool user create "${admin_username}" "${admin_password}" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${admin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password=${root_password}
+cat << EOF >> rc.samba-dc
+		# Add a generic group with Unix attributes
+		samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10001 --username=administrator --password=${root_password}
+		# Add an user with Unix attributes
+		# Note: newly created users will have default AD primary group set to the "Domain Users" group so it will "map" to (overlap with) the default "users" Unix group
+		# Note: By default the "Domain Users" group has gidNumber 100
+		# TODO: find a general way to define uid/gid values
+		# TODO: it seems that AD primary group still has precedence and forcing a different primary group by means of gid-number here does not work - find out why
+		samba-tool user create "${winadmin_username}" "${winadmin_password}" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=100 --username=administrator --password=${root_password}
+		# Add newly created user to the default "Domain Admins" group
+		samba-tool group addmembers "Domain Admins" "${winadmin_username}"
+	else
+		# Setup an rsync cron job for sysvol replication
+		cat <<- EOM > /etc/cron.d/sysvol-replication
+		# Run unidirectional sysvol replication from first AD DC once every 5 minutes
+		*/5 * * * * root rsync -XAavz --delete-after --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@${my_nameserver}/SysVol/ /var/lib/samba/sysvol/ > /var/log/samba/sysvol-replication.log 2>&1
+		EOM
+		chmod 644 /etc/cron.d/sysvol-replication
+	fi
 	# Reconfigure NSS to use also Winbind (useful for "getent" use and filesystem listings)
+	# Note: Winbind is automatically started by Samba in AD DC mode anyway
 	sed -i -r -e '/^(passwd|group):\s/s/\$/ winbind/g' /etc/nsswitch.conf
 	# Reconfigure networking to use localhost DNS
+	# TODO: with more than one domain controller, each should primarily point to another one as DNS server
 	for nic_cfg_file in /etc/sysconfig/network-scripts/ifcfg-* ; do
 		eval \$(grep '^DEVICE=' "\${nic_cfg_file}")
 		nic_name="\${DEVICE}"
@@ -867,7 +1034,7 @@ cat << EOF >> rc.samba-dc-provision
 		systemctl restart NetworkManager
 	done
 else
-	logger -s -p "local7.err" -t "rc.samba-dc-provision" "Error while provisioning Samba AD DC domain: \${res}"
+	logger -s -p "local7.err" -t "rc.samba-dc" "Error while \${action} Samba AD DC domain: \${res}"
 	exit 255
 fi
 EOF
@@ -893,7 +1060,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082501"
+script_version="2017082604"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1037,8 +1204,8 @@ yum -y install webalizer mrtg net-snmp net-snmp-utils
 # Install Webmin
 yum -y install webmin
 
-# Install custom Samba packages with AD DC support from our own repo
-yum -y --enablerepo hvp-samba-dc install samba-dc samba-common-tools samba-client
+# Install custom Samba packages with AD DC support from our own repo and related utilities
+yum -y --enablerepo hvp-samba-dc install samba-dc samba-common-tools samba-client rsync
 
 # Install Network UPS Tools
 # Note: the oVirt based setup has VMs shutting down internally, referring NUT to Engine which in turn tracks actual UPS through host nodes
@@ -1255,7 +1422,7 @@ fi
 sed -i -e 's/^SYNC_HWCLOCK=.*$/SYNC_HWCLOCK="yes"/' /etc/sysconfig/ntpdate
 echo "0.centos.pool.ntp.org" > /etc/ntp/step-tickers
 
-# Allow NTPdate hardware clock synch through SELinux
+# Allow NTPdate hardware clock sync through SELinux
 # Note: obtained by means of: cat /var/log/audit/audit.log | audit2allow -M myntpdate
 # TODO: remove when SELinux policy fixed upstream
 mkdir -p /etc/selinux/local
@@ -1285,14 +1452,6 @@ semodule -i myntpdate.pp
 popd
 
 # Configure NTPd
-# Always provide reference to clients
-cat << EOF >> /etc/ntp.conf
-
-server 127.127.1.0
-fudge 127.127.1.0 stratum 8
-
-EOF
-
 # Note: Configuration fragment to add NTP service for local clients generated in pre section above and appended in third post section below
 
 # Add safeguard for NTP on virtual machines
@@ -1910,8 +2069,8 @@ if [ -x /etc/rc.d/rc.users-setup ]; then
 fi
 
 # Run Samba AD DC domain provisioning actions
-if [ -x /etc/rc.d/rc.samba-dc-provision ]; then
-	/etc/rc.d/rc.samba-dc-provision
+if [ -x /etc/rc.d/rc.samba-dc ]; then
+	/etc/rc.d/rc.samba-dc
 fi
 
 # Disable further executions of this script from systemd
@@ -1976,11 +2135,11 @@ if [ -f /tmp/hvp-users-conf/rc.users-setup ]; then
 fi
 
 # Copy Samba configuration script (generated in pre section above) into installed system
-if [ -s /tmp/hvp-samba-conf/rc.samba-dc-provision ]; then
-	cp /tmp/hvp-samba-conf/rc.samba-dc-provision /mnt/sysimage/etc/rc.d/rc.samba-dc-provision
+if [ -s /tmp/hvp-samba-conf/rc.samba-dc ]; then
+	cp /tmp/hvp-samba-conf/rc.samba-dc /mnt/sysimage/etc/rc.d/rc.samba-dc
 	# Note: cleartext passwords contained - must restrict access
-	chmod 700 /mnt/sysimage/etc/rc.d/rc.samba-dc-provision
-	chown root:root /mnt/sysimage/etc/rc.d/rc.samba-dc-provision
+	chmod 700 /mnt/sysimage/etc/rc.d/rc.samba-dc
+	chown root:root /mnt/sysimage/etc/rc.d/rc.samba-dc
 fi
 
 # Copy TCP wrappers configuration (generated in pre section above) into installed system
