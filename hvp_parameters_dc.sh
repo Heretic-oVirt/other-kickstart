@@ -12,6 +12,7 @@ test_ip_offset="1"
 test_ip['mgmt']="172.20.10.1"
 test_ip['lan']="172.20.12.1"
 
+# Note: when installing further AD DCs you must provide a different offset
 my_ip_offset="220"
 
 storage_ip_offset="30"
@@ -33,18 +34,19 @@ domain_join="false"
 sysvolrepl_password="HVP_dem0"
 
 # Note: when creating the first DC, this value will be never used (and will be discarded) after installation
-# Note: when creating further DCs, this value will be used for initial and recurring sysvol-related replications from first DC (so it should point to the first DC)
+# Note: when creating further DCs, this value will be used for initial domain join (so it should point to and AD-integrated DNS server)
 my_nameserver="8.8.8.8"
 
 my_forwarders="8.8.8.8"
 
+# Note: when installing further AD DCs you must provide a different name
 my_name="spike"
 
 # Note: passwords must meet the AD complexity requirements
 root_password="HVP_dem0"
 admin_username="hvpadmin"
 admin_password="HVP_dem0"
-# Note: the default AD further admin username will be teh admin username above prfixed with the "ad" string
+# Note: the default AD further admin username will be the admin username above prefixed with the "ad" string
 winadmin_password="HVP_dem0"
 keyboard_layout="us"
 local_timezone="UTC"
