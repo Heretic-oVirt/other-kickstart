@@ -2,13 +2,15 @@
 
 This repository contains further kickstart files for virtual guests used in the Heretic oVirt Project:
 
-hvp-dc-c7.ks -  kickstart file for a CentOS7 Samba4 AD DC machine (install this virtual machine *first*)
+hvp-dc-c7.ks -  kickstart file for a CentOS7 Samba AD DC machine (install this virtual machine *first*)
 
 hvp-db-c7.ks - kickstart file for a CentOS7 database (either PostgreSQL, MySQL, Firebird or SQLServer) machine
 
 Future planned kickstart files (all further virtual machines should be joined to the AD domain created above):
 
 hvp-erp-c7.ks - kickstart file for a CentOS7 application/ERP (TBD) machine
+
+hvp-ps-c7.ks - kickstart file for a CentOS7 printer server (Samba) machine
 
 hvp-fw-c7.ks - kickstart file for a CentOS7 firewall/proxy/VPN (firewalld/Squid/Strongswan) machine
 
