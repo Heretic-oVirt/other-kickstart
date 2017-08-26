@@ -1,16 +1,16 @@
 # Preconfigured defaults for AD DC server installation
 # Note: the following are all the modifiable parameters for reference only (values are equal to hardcoded defaults)
 
-dbtype="postgresql"
-
 nicmacfix="false"
+
+dbtype="postgresql"
 
 # Note: for the following values, either the IPs or the offset is enough, but we will list here both as an example
 test_ip_offset="1"
 test_ip['mgmt']="172.20.10.1"
 test_ip['lan']="172.20.12.1"
 
-my_ip_offset="221"
+my_ip_offset="230"
 
 # Note: network_base values are derived automatically anyway
 network['mgmt']="172.20.10.0"
@@ -24,6 +24,9 @@ mtu['lan']="1500"
 domain_name['mgmt']="mgmt.private"
 domain_name['lan']="lan.private"
 
+domain_join="false"
+
+# Note: to join and AD domain the nameserver should be an AD-integrated one
 my_nameserver="8.8.8.8"
 
 my_forwarders="8.8.8.8"
@@ -36,5 +39,7 @@ dcname="spike"
 root_password="HVP_dem0"
 admin_username="hvpadmin"
 admin_password="HVP_dem0"
+# Note: the default AD further admin username will be the admin username above prefixed with the "ad" string
+winadmin_password="HVP_dem0"
 keyboard_layout="us"
 local_timezone="UTC"
