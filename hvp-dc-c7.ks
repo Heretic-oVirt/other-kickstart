@@ -862,15 +862,15 @@ if [ "${domain_join}" = "true" ]; then
 	# Make sure to sync only with the proper time reference (emulate Windows behaviour, using as reference the DC holding the PDC emulator FSMO role)
 	domain_pdc_emulator=\$(dig _ldap._tcp.pdc._msdcs.${domain_name[${my_zone}]} SRV +short)
 	# Note: if we failed to get the PDC emulator, then assume that the given nameserver is a proper reference
-	if [ -z "${domain_pdc_emulator}" ]; then
+	if [ -z "\${domain_pdc_emulator}" ]; then
 		domain_pdc_emulator="${my_nameserver}"
 	fi
-	echo "${domain_pdc_emulator}" > /etc/ntp/step-tickers
+	echo "\${domain_pdc_emulator}" > /etc/ntp/step-tickers
 	sed -i -e '/^server\\s/^/#/g' /etc/ntp.conf
 	cat <<- EOM >> /etc/ntp.conf
 
 	# Always sync with our first AD DC server only
-	server ${domain_pdc_emulator} iburst
+	server \${domain_pdc_emulator} iburst
 
 	EOM
 	# Stop NTPd
@@ -922,7 +922,7 @@ if [ \${res} -eq 0 ]; then
 	if [ "${domain_join}" = "true" ]; then
 		# Copy /var/lib/samba/private/idmap.ldb from PDC emulator to keep BUILTIN ids aligned
 		rm -f /var/lib/samba/private/idmap.ldb
-		rsync -XAavz --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@${domain_pdc_emulator}/SysVolRepl/idmap.ldb /var/lib/samba/private/
+		rsync -XAavz --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@\${domain_pdc_emulator}/SysVolRepl/idmap.ldb /var/lib/samba/private/
 		restorecon -v /var/lib/samba/private/idmap.ldb
 		# Reset sysvol ACLs 
 		samba-tool ntacl sysvolreset
@@ -1016,7 +1016,7 @@ cat << EOF >> rc.samba-dc
 		# Setup an rsync cron job for sysvol replication
 		cat <<- EOM > /etc/cron.d/sysvol-replication
 		# Run unidirectional sysvol replication from PDC emulator once every 5 minutes
-		*/5 * * * * root rsync -XAavz --delete-after --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@${domain_pdc_emulator}/SysVol/ /var/lib/samba/sysvol/ > /var/log/samba/sysvol-replication.log 2>&1
+		*/5 * * * * root rsync -XAavz --delete-after --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@\${domain_pdc_emulator}/SysVol/ /var/lib/samba/sysvol/ > /var/log/samba/sysvol-replication.log 2>&1
 		EOM
 		chmod 644 /etc/cron.d/sysvol-replication
 	fi
@@ -1065,7 +1065,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082606"
+script_version="2017082701"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -2149,3 +2149,4 @@ mv /mnt/sysimage/root/kickstart_post.log /mnt/sysimage/root/log
 setfiles -F -e /proc -e /sys -e /dev -e /selinux /etc/selinux/targeted/contexts/files/file_contexts /
 setfiles -F /etc/selinux/targeted/contexts/files/file_contexts.homedirs /home/ /root/
 %end
+
