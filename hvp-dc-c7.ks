@@ -853,20 +853,20 @@ cat << EOF > rc.samba-dc
 #!/bin/bash
 # Create secrets file for sysvol replication
 cat << EOM > /etc/samba/rsync-sysvol.secret
-sysvol-replication: ${sysvolrepl_password}
+${sysvolrepl_password}
 EOM
 chmod 600 /etc/samba/rsync-sysvol.secret
 chown root:root /etc/samba/rsync-sysvol.secret
 if [ "${domain_join}" = "true" ]; then
 	action="joining"
 	# Make sure to sync only with the proper time reference (emulate Windows behaviour, using as reference the DC holding the PDC emulator FSMO role)
-	domain_pdc_emulator=\$(dig _ldap._tcp.pdc._msdcs.${domain_name[${my_zone}]} SRV +short)
+	domain_pdc_emulator=\$(dig _ldap._tcp.pdc._msdcs.${domain_name[${my_zone}]} SRV +short | awk '{print \$4}' | sed -e 's/[.]\$//')
 	# Note: if we failed to get the PDC emulator, then assume that the given nameserver is a proper reference
 	if [ -z "\${domain_pdc_emulator}" ]; then
 		domain_pdc_emulator="${my_nameserver}"
 	fi
 	echo "\${domain_pdc_emulator}" > /etc/ntp/step-tickers
-	sed -i -e '/^server\\s/^/#/g' /etc/ntp.conf
+	sed -i -e '/^server\\s/s/^/#/g' /etc/ntp.conf
 	cat <<- EOM >> /etc/ntp.conf
 
 	# Always sync with our first AD DC server only
@@ -876,24 +876,22 @@ if [ "${domain_join}" = "true" ]; then
 	# Stop NTPd
 	systemctl stop ntpd
 	# Resync time with first AD DC
-	systemctl start ntpdate
+	systemctl restart ntpdate
 	# Restart NTPd
 	systemctl start ntpd
 	# Setup krb5.conf properly
-	sed -i -e "s/^\\\\(\\\\s*\\\\)\\\\(dns_lookup_realm\\\\s*=.*\\\\)\\$/\\\\1\\\\2\n\\\\1dns_lookup_kdc = true\\\\n\\\\1default_realm = ${realm_name}/" /etc/krb5.conf
+	sed -i -e '/^\\s*includedir/s/^/#/g' -e "s/^\\\\(\\\\s*\\\\)\\\\(dns_lookup_realm\\\\s*=.*\\\\)\\$/\\\\1\\\\2\n\\\\1dns_lookup_kdc = true\\\\n\\\\1default_realm = ${realm_name}/" /etc/krb5.conf
 	# Clean up any previous Samba settings
 	rm -f /etc/samba/smb.conf
 	# Perform domain joining
-	# TODO: check options
-	samba-tool domain join ${domain_name[${my_zone}]} DC --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" --username=administrator --password=${root_password}
+	samba-tool domain join ${domain_name[${my_zone}]} DC --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" -U administrator@${realm_name} --password='${root_password}'
 	res=\$?
 else
 	action="provisioning"
 	# Clean up any previous Kerberos/Samba settings
 	rm -f /etc/krb5.* /etc/samba/smb.conf
 	# Perform domain provisioning
-	# TODO: check options
-	samba-tool domain provision --use-rfc2307 --realm=${realm_name} --domain=${netbios_domain_name} --server-role=dc --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" --adminpass=${root_password}
+	samba-tool domain provision --use-rfc2307 --realm=${realm_name} --domain=${netbios_domain_name} --server-role=dc --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" --adminpass='${root_password}'
 	res=\$?
 fi
 if [ \${res} -eq 0 ]; then
@@ -921,9 +919,10 @@ if [ \${res} -eq 0 ]; then
 	if [ "${domain_join}" = "true" ]; then
 		# Copy /var/lib/samba/private/idmap.ldb from PDC emulator to keep BUILTIN ids aligned
 		rm -f /var/lib/samba/private/idmap.ldb
-		rsync -XAavz --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@\${domain_pdc_emulator}/SysVolRepl/idmap.ldb /var/lib/samba/private/
+		rsync -XAavz --password-file=/etc/samba/rsync-sysvol.secret rsync://\${domain_pdc_emulator}/SysVolRepl/idmap.ldb /var/lib/samba/private/
 		restorecon -v /var/lib/samba/private/idmap.ldb
 		# Reset sysvol ACLs 
+		# TODO: possible errors here - debug
 		samba-tool ntacl sysvolreset
 	fi
 	# Enable and start Samba AD DC
@@ -949,9 +948,12 @@ if [ \${res} -eq 0 ]; then
 		EOM
 		chmod 644 /etc/systemd/system/rsync*.d/*.conf
 		chown root:root /etc/systemd/system/rsync*.d/*.conf
-		# Apply rsyncd systemd configuration
-		systemctl daemon-reload
-		systemctl enable rsyncd.socket
+		# Allow through firewall
+		firewall-cmd --permanent --add-service=rsyncd
+		firewall-cmd --reload
+		# Allow through SELinux
+		# TODO: define a more fine grained rule to allow access only to the required subtrees
+		setsebool -P rsync_export_all_ro on
 		# Create Rsync configuration for sysvol replication
 		# Note: the second section will be used only once for each further DC to align BUILTIN ids
 		cat <<- EOM > /etc/rsyncd.conf
@@ -961,7 +963,6 @@ if [ \${res} -eq 0 ]; then
 		uid = root
 		gid = root
 		read only = yes
-		auth users = sysvol-replication
 		secrets file = /etc/samba/rsync-sysvol.secret
 
 		[SysVolRepl]
@@ -970,44 +971,53 @@ if [ \${res} -eq 0 ]; then
 		uid = root
 		gid = root
 		read only = yes
-		auth users = sysvol-replication
 		secrets file = /etc/samba/rsync-sysvol.secret
 		EOM
 		chmod 644 /etc/rsyncd.conf
 		chown root:root /etc/rsyncd.conf
+		# Apply rsyncd systemd configuration
+		systemctl daemon-reload
+		systemctl --now enable rsyncd.socket
 		# Note: it seems that we need to allow some time for the internal DNS to come up
 		sleep 30
 		# Add DNS reverse zone
-		samba-tool dns zonecreate ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} --username=administrator --password=${root_password}
+		samba-tool dns zonecreate ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} --username=administrator --password='${root_password}'
 		# Add DNS A and PTR records for known machines
+		# Add DNS PTR record for ourselves
+	        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(echo ${my_ip[${my_zone}]} | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${my_name}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
 		# Add round-robin-resolved name for CTDB-controlled NFS/CIFS services
 		# TODO: find a way to add A records with a TTL of 1
 EOF
 for ((i=0;i<${active_storage_node_count};i=i+1)); do
 	cat <<- EOF >> rc.samba-dc
-	            samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password=${root_password}
-	            samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${domain_name[${my_zone}]} --username=administrator --password=${root_password}
+	            samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password='${root_password}'
+	            samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
 	EOF
 done
 cat << EOF >> rc.samba-dc
 		# Add a generic group with Unix attributes
-		samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10001 --username=administrator --password=${root_password}
+		samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10001 --username=administrator --password='${root_password}'
 		# Add an user with Unix attributes
 		# Note: newly created users will have default AD primary group set to the "Domain Users" group so it will "map" to (overlap with) the default "users" Unix group
 		# Note: By default the "Domain Users" group has gidNumber 100
 		# TODO: find a general way to define uid/gid values
 		# TODO: it seems that AD primary group still has precedence and forcing a different primary group by means of gid-number here does not work - find out why
 		# TODO: it seems that the login shell gets set to /bin/false anyway - find out why
-		samba-tool user create "${winadmin_username}" "${winadmin_password}" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=100 --username=administrator --password=${root_password}
+		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=100 --username=administrator --password='${root_password}'
 		# Add newly created user to the default "Domain Admins" group
 		samba-tool group addmembers "Domain Admins" "${winadmin_username}"
 	else
+		# Note: it seems that we need to allow some time for the internal DNS to come up
+		sleep 30
+		# Add DNS PTR record for ourselves
+	        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(echo ${my_ip[${my_zone}]} | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${my_name}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
 		# Setup an rsync cron job for sysvol replication
 		cat <<- EOM > /etc/cron.d/sysvol-replication
 		# Run unidirectional sysvol replication from PDC emulator once every 5 minutes
-		*/5 * * * * root rsync -XAavz --delete-after --password-file=/etc/samba/rsync-sysvol.secret rsync://sysvol-replication@\${domain_pdc_emulator}/SysVol/ /var/lib/samba/sysvol/ > /var/log/samba/sysvol-replication.log 2>&1
+		*/5 * * * * root rsync -XAavz --delete-after --password-file=/etc/samba/rsync-sysvol.secret rsync://\${domain_pdc_emulator}/SysVol/ /var/lib/samba/sysvol/ > /var/log/samba/sysvol-replication.log 2>&1
 		EOM
 		chmod 644 /etc/cron.d/sysvol-replication
+		chown root:root /etc/cron.d/sysvol-replication
 	fi
 	# Reconfigure NSS to use also Winbind (useful for "getent" use and filesystem listings)
 	# Note: Winbind is automatically started by Samba in AD DC mode anyway
@@ -1054,7 +1064,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082902"
+script_version="2017082906"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1199,7 +1209,7 @@ yum -y install webalizer mrtg net-snmp net-snmp-utils
 yum -y install webmin
 
 # Install custom Samba packages with AD DC support from our own repo and related utilities
-yum -y --enablerepo hvp-samba-dc install samba-dc samba-common-tools samba-client rsync
+yum -y --enablerepo hvp-samba-dc install samba-dc samba-common-tools samba-client rsync krb5-workstation openldap-clients cyrus-sasl-gssapi
 
 # Install Bareos client (file daemon + console)
 # TODO: using our repo to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
