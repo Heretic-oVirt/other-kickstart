@@ -753,12 +753,8 @@ fi
 mkdir -p /tmp/hvp-ntpd-conf
 pushd /tmp/hvp-ntpd-conf
 if [ "${domain_join}" = "true" ]; then
-	# Make sure to sync only with the proper time reference (emulate Windows behaviour, using as reference the DC holding the PDC emulator FSMO role)
-	ntp_server=\$(dig _ldap._tcp.pdc._msdcs.${domain_name[${my_zone}]} SRV +short)
-	# Note: if we failed to get the PDC emulator, then assume that the given nameserver is a proper reference
-	if [ -z "${ntp_server}" ]; then
-		ntp_server="${my_nameserver}"
-	fi
+	# Make sure to sync only with the proper time reference (emulate Windows behaviour, using as reference the AD domain name to get back the DC holding the PDC emulator FSMO role)
+	ntp_server="${domain_name[${my_zone}]}"
 	cat <<- EOF > chrony.conf
 
 	server ${ntp_server} iburst
@@ -815,11 +811,11 @@ if [ "${domain_join}" = "true" ]; then
 	cat <<- EOM | expect -f -
 	set force_conservative 1
 	
-	if {\$force_conservative} {
+	if {\\\$force_conservative} {
 		set send_slow {1 .1}
 		proc send {ignore arg} {
 			sleep .1
-			exp_send -s -- \\$arg
+			exp_send -s -- \\\$arg
 		}
 	}
 	
@@ -858,7 +854,7 @@ case "${dbtype}" in
 		systemctl --now enable postgresql-9.6
 
 		# Change system/DB password for PostgreSQL admin user
-		echo "${root_password}" | passwd --stdin postgres
+		echo '${root_password}' | passwd --stdin postgres
 		su - postgres -c "psql -d template1 -c \\"ALTER USER postgres WITH PASSWORD '${root_password}';\\""
 
 		# Enable password authentication
@@ -963,7 +959,7 @@ case "${dbtype}" in
 		# Initialize SQLServer
 		# Note: 3.25 GiB RAM are absolutely required
 		# TODO: verify editions/licensing, language/collation and paths
-		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD="${root_password}" /opt/mssql/bin/mssql-conf -n setup
+		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD='${root_password}' /opt/mssql/bin/mssql-conf -n setup
 
 		# Initialize SQLServer Integration Services
 		ACCEPT_EULA=Y /opt/ssis/bin/ssis-conf -n setup
@@ -995,7 +991,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082902"
+script_version="2017082905"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1584,7 +1580,9 @@ systemctl enable snmpd
 
 # Configuration file customization through cfgmaker/indexmaker demanded to post-install rc.ks1stboot script
 
-# Configure MRTG-Apache integration (by default will be reachable only from localhost: use SSH tunneling)
+# Configure MRTG-Apache integration (allow access from everywhere)
+sed -i -e 's/^\(\s*\)\(Require local.*\)$/\1Require all granted/' /etc/httpd/conf.d/mrtg.conf
+
 
 # Configure Apache
 
@@ -2222,23 +2220,22 @@ fi
 popd
 # Note: CentOS 7 persistent net device naming means that MAC addresses are not statically registered by default anymore
 
-EOF
-
 # Initialize MRTG configuration (needs Net-SNMP up)
 # TODO: add CPU/RAM/disk/etc. resource monitoring
 cfgmaker --output /etc/mrtg/mrtg.cfg --global "HtmlDir: /var/www/mrtg" --global "ImageDir: /var/www/mrtg" --global "LogDir: /var/lib/mrtg" --global "ThreshDir: /var/lib/mrtg" --no-down --zero-speed=1000000000 --if-filter='(\$default && \$if_is_ethernet)' public@localhost
 
 # Set execution mode parameters
 # Note: on CentOS7 MRTG is preferably configured as an always running service (for efficiency reasons)
-sed -i -e '/Global Config Options/s/^\(.*\)$/\1\nRunAsDaemon: Yes\nInterval: 5\nNoDetach: Yes/' /etc/mrtg/mrtg.cfg
+sed -i -e '/Global Config Options/s/^\\(.*\\)\$/\\1\nRunAsDaemon: Yes\\nInterval: 5\\nNoDetach: Yes/' /etc/mrtg/mrtg.cfg
 
 # Setup MRTG index page
 indexmaker --output=/var/www/mrtg/index.html /etc/mrtg/mrtg.cfg
 
 # Enable MRTG
 # Note: MRTG is an always running service (for efficiency reasons) now
-systemctl enable mrtg
-systemctl start mrtg
+systemctl --now enable mrtg
+
+EOF
 
 # Saving installation instructions
 # Note: done in rc.ks1stboot since this seems to get created after all post scripts are run
@@ -2325,7 +2322,7 @@ fi
 # Append Chrony configuration fragment (generated in pre section above) into installed system
 # Note: if we specify additional Chrony configuration, then all default servers get disabled
 if [ -s /tmp/hvp-ntpd-conf/chrony.conf ]; then
-	sed -i -e '/^server\\s/^/#/g' /mnt/sysimage/etc/chrony.conf
+	sed -i -e '/^server\s/s/^/#/g' /mnt/sysimage/etc/chrony.conf
 	cat /tmp/hvp-ntpd-conf/chrony.conf >> /mnt/sysimage/etc/chrony.conf
 fi
 
