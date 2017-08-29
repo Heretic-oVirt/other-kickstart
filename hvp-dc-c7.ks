@@ -888,14 +888,13 @@ if [ "${domain_join}" = "true" ]; then
 	samba-tool domain join ${domain_name[${my_zone}]} DC --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" --username=administrator --password=${root_password}
 	res=\$?
 else
+	action="provisioning"
 	# Clean up any previous Kerberos/Samba settings
 	rm -f /etc/krb5.* /etc/samba/smb.conf
 	# Perform domain provisioning
 	# TODO: check options
 	samba-tool domain provision --use-rfc2307 --realm=${realm_name} --domain=${netbios_domain_name} --server-role=dc --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" --adminpass=${root_password}
 	res=\$?
-else
-	action="provisioning"
 fi
 if [ \${res} -eq 0 ]; then
 	# Add DNS forwarders
@@ -936,36 +935,23 @@ if [ \${res} -eq 0 ]; then
 		tdbbackup -s .bak /var/lib/samba/private/idmap.ldb
 		mkdir -p /var/lib/samba/sysvolrepl
 		cp -a /var/lib/samba/private/idmap.ldb.bak /var/lib/samba/sysvolrepl/idmap.ldb
-		# Setup an rsync socket/service for sysvol replication
+		# Customize the rsyncd socket/service for sysvol replication
 		# Note: adapted from https://wiki.samba.org/index.php/Rsync_based_SysVol_replication_workaround
-		# Note: conversion to systemd taken from https://github.com/ioanrogers/systemd-units/blob/master/system/rsync.socket and https://github.com/ioanrogers/systemd-units/blob/master/system/rsync@.service
-		cat <<- EOM > /etc/systemd/system/rsync.socket
-		[Unit]
-		Description = Listen for rsync connections
-
+		cat <<- EOM > /etc/systemd/system/rsyncd.socket.d/custom-bindlimit.conf
 		[Socket]
-		ListenStream = 873
 		BindToDevice = ${nics[${my_zone}]}
-		Accept = true
-
-		[Install]
-		WantedBy = sockets.target
 		EOM
-		cat <<- EOM > /etc/systemd/system/rsync@.service
-		[Unit]
-		Description = Fast remote file copy program daemon
-		ConditionPathExists = /etc/rsyncd.conf
-		Requires = rsync.socket
-
+		cat <<- EOM > /etc/systemd/system/rsyncd@.service.d/custom-scheduling.conf
 		[Service]
-		ExecStart = /usr/bin/rsync --daemon
-		StandardInput = socket
 		IOSchedulingClass = idle
 		Nice = 10
 		CPUSchedulingPolicy = idle
 		EOM
-		chmod 644 /etc/systemd/system/rsync*
-		chown root:root /etc/systemd/system/rsync*
+		chmod 644 /etc/systemd/system/rsync*.d/*.conf
+		chown root:root /etc/systemd/system/rsync*.d/*.conf
+		# Apply rsyncd systemd configuration
+		systemctl daemon-reload
+		systemctl enable rsyncd.socket
 		# Create Rsync configuration for sysvol replication
 		# Note: the second section will be used only once for each further DC to align BUILTIN ids
 		cat <<- EOM > /etc/rsyncd.conf
@@ -989,6 +975,8 @@ if [ \${res} -eq 0 ]; then
 		EOM
 		chmod 644 /etc/rsyncd.conf
 		chown root:root /etc/rsyncd.conf
+		# Note: it seems that we need to allow some time for the internal DNS to come up
+		sleep 30
 		# Add DNS reverse zone
 		samba-tool dns zonecreate ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} --username=administrator --password=${root_password}
 		# Add DNS A and PTR records for known machines
@@ -1009,6 +997,7 @@ cat << EOF >> rc.samba-dc
 		# Note: By default the "Domain Users" group has gidNumber 100
 		# TODO: find a general way to define uid/gid values
 		# TODO: it seems that AD primary group still has precedence and forcing a different primary group by means of gid-number here does not work - find out why
+		# TODO: it seems that the login shell gets set to /bin/false anyway - find out why
 		samba-tool user create "${winadmin_username}" "${winadmin_password}" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=100 --username=administrator --password=${root_password}
 		# Add newly created user to the default "Domain Admins" group
 		samba-tool group addmembers "Domain Admins" "${winadmin_username}"
@@ -1065,7 +1054,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082701"
+script_version="2017082901"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1135,7 +1124,7 @@ fi
 ln -sf $rootdisk /dev/root
 
 # Add support for CentOS CR repository (to allow up-to-date upgrade later)
-yum -y install centos-release-cr
+yum-config-manager --enable cr > /dev/null
 
 # Add upstream repository definitions
 # TODO: use a specific mirror to avoid transient errors - replace when fixed upstream
@@ -2149,4 +2138,3 @@ mv /mnt/sysimage/root/kickstart_post.log /mnt/sysimage/root/log
 setfiles -F -e /proc -e /sys -e /dev -e /selinux /etc/selinux/targeted/contexts/files/file_contexts /
 setfiles -F /etc/selinux/targeted/contexts/files/file_contexts.homedirs /home/ /root/
 %end
-
