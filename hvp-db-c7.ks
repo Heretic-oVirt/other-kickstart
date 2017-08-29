@@ -995,7 +995,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082606"
+script_version="2017082901"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1076,7 +1076,7 @@ fi
 ln -sf $rootdisk /dev/root
 
 # Add support for CentOS CR repository (to allow up-to-date upgrade later)
-yum -y install centos-release-cr
+yum-config-manager --enable cr > /dev/null
 
 # Add upstream repository definitions
 # TODO: use a specific mirror to avoid transient errors - replace when fixed upstream
