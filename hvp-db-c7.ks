@@ -280,6 +280,7 @@ my_name="bigmcintosh"
 root_password="HVP_dem0"
 admin_username="hvpadmin"
 admin_password="HVP_dem0"
+winadmin_password="HVP_dem0"
 keyboard_layout="us"
 local_timezone="UTC"
 
@@ -828,13 +829,13 @@ if [ "${domain_join}" = "true" ]; then
 	EOM
 	res=\$?
 	if [ \${res} -ne 0 ]; then
-		# Report script ending
-		logger -s -p "local7.err" -t "rc.domain-join" "Exiting join (failed Kerberos authentication with join credentials)"
-		exit \${res}
+	    # Report script ending
+	    logger -s -p "local7.err" -t "rc.domain-join" "Exiting join (failed Kerberos authentication with join credentials)"
+	    exit \${res}
 	else
-		klist
-		realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) ${domain_name[${my_zone}]}
-		kdestroy
+	    klist
+	    realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) --automatic-id-mapping=no ${domain_name[${my_zone}]}
+	    kdestroy
 	fi
 	EOF
 	popd
@@ -991,7 +992,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082905"
+script_version="2017082907"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -2041,7 +2042,7 @@ case "${dbtype}" in
 		chown -R firebird:firebird /tmp/firebird
 
 		# Enable Firebird
-		systemctl --now enable firebird-superserver
+		systemctl enable firebird-superserver
 		;;
 	sqlserver)
 		# Configure firewall
