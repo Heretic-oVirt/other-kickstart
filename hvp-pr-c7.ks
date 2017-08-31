@@ -827,7 +827,7 @@ if [ "${domain_join}" = "true" ]; then
 	    # TODO: default generated Winbind configuration is invalid (Winbind dies immediately) - modifying it - remove when fixed upstream
 	    netbios_domain=\$(awk '/^[[:space:]]*workgroup[[:space:]]*=/ {print \$3}' /etc/samba/smb.conf)
 	    sed -i -e '/^\\s*idmap\\s/d' /etc/samba/smb.conf
-	    sed -i -e "/^\\\\s*realm\\\\s/s/\\\$/idmap config * : backend = autorid\\nidmap config * : range = 2000000000-3999999999\\nidmap config * : rangesize = 1000000\\nidmap config \${netbios_domain} : backend = ad\\nidmap config \${netbios_domain} : range = 9999-1999999999\\nidmap config \${netbios_domain} : schema_mode = rfc2307\\nwinbind nss info = rfc2307\\nwinbind nested groups = yes\\nwinbind expand groups = 2/' /etc/samba/smb.conf
+	    sed -i -e "/^\\\\s*realm\\\\s/s/\\\$/\\nidmap config * : backend = autorid\\nidmap config * : range = 2000000000-3999999999\\nidmap config * : rangesize = 1000000\\nidmap config \${netbios_domain} : backend = ad\\nidmap config \${netbios_domain} : range = 9999-1999999999\\nidmap config \${netbios_domain} : schema_mode = rfc2307\\nwinbind nss info = rfc2307\\nwinbind nested groups = yes\\nwinbind expand groups = 2/" /etc/samba/smb.conf
 	    sed -i -e '/\\s*kerberos\\s*method\\s*=/s>=.*\$>= secrets and keytab\\ndedicated keytab file = /etc/krb5.keytab>' /etc/samba/smb.conf
 	    sed -i -e '/^shadow:/s/\\s*winbind//g' /etc/nsswitch.conf
 	    systemctl restart winbind
@@ -942,7 +942,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017083101"
+script_version="2017083102"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
