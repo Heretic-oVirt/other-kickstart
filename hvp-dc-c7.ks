@@ -955,7 +955,7 @@ if [ \${res} -eq 0 ]; then
 		# TODO: define a more fine grained rule to allow access only to the required subtrees
 		setsebool -P rsync_export_all_ro on
 		# Create Rsync configuration for sysvol replication
-		# Note: the second section will be used only once for each further DC to align BUILTIN ids
+		# Note: the second section will be used only once for each further DC to initially align BUILTIN ids
 		cat <<- EOM > /etc/rsyncd.conf
 		[SysVol]
 		path = /var/lib/samba/sysvol/
@@ -996,16 +996,38 @@ for ((i=0;i<${active_storage_node_count};i=i+1)); do
 done
 cat << EOF >> rc.samba-dc
 		# Add a generic group with Unix attributes
-		samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10001 --username=administrator --password='${root_password}'
+		samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10002 --username=administrator --password='${root_password}'
 		# Add an user with Unix attributes
-		# Note: newly created users will have default AD primary group set to the "Domain Users" group so it will "map" to (overlap with) the default "users" Unix group
-		# Note: By default the "Domain Users" group has gidNumber 100
-		# TODO: find a general way to define uid/gid values
+		# Note: newly created users will have default AD primary group set to the "Domain Users" (as per Windows AD default)
+		# Note: by default the "Domain Users" group has no gidNumber (even if it seems to have gidNumber 100)
 		# TODO: it seems that AD primary group still has precedence and forcing a different primary group by means of gid-number here does not work - find out why
-		# TODO: it seems that the login shell gets set to /bin/false anyway - find out why
-		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=100 --username=administrator --password='${root_password}'
+		# TODO: find a general way to define uid/gid values
+		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password='${root_password}'
 		# Add newly created user to the default "Domain Admins" group
 		samba-tool group addmembers "Domain Admins" "${winadmin_username}"
+		# Add gidNumber 10000 to "Domain Admins"
+		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		\\\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\\\$(wbinfo --name-to-sid "Domain Admins" | awk '{print \\\$1}') | grep '^dn:')
+		changetype: modify
+		add: gidNumber
+		gidNumber: 10000
+		EOM
+		# Add gidNumber 10001 to "Domain Users" (it's needed anyway and works somewhat around the problem on primary groups)
+		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		\\\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\\\$(wbinfo --name-to-sid "Domain Users" | awk '{print \\\$1}') | grep '^dn:')
+		changetype: modify
+		add: gidNumber
+		gidNumber: 10001
+		EOM
+		# Add uidNumber 10000 and gidNumber 10001 to "administrator"
+		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		\\\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\\\$(wbinfo --name-to-sid "administrator" | awk '{print \\\$1}') | grep '^dn:')
+		changetype: modify
+		add: uidNumber
+		uidNumber: 10000
+		add: gidNumber
+		gidNumber: 10001
+		EOM
 	else
 		# Note: it seems that we need to allow some time for the internal DNS to come up
 		sleep 30
@@ -1064,7 +1086,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082907"
+script_version="2017083001"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1209,7 +1231,7 @@ yum -y install webalizer mrtg net-snmp net-snmp-utils
 yum -y install webmin
 
 # Install custom Samba packages with AD DC support from our own repo and related utilities
-yum -y --enablerepo hvp-samba-dc install samba-dc samba-common-tools samba-client rsync krb5-workstation openldap-clients cyrus-sasl-gssapi
+yum -y --enablerepo hvp-samba-dc install samba-dc samba-common-tools samba-client samba-winbind-clients rsync krb5-workstation openldap-clients cyrus-sasl-gssapi
 
 # Install Bareos client (file daemon + console)
 # TODO: using our repo to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
