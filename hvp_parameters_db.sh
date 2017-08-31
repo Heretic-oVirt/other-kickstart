@@ -1,4 +1,4 @@
-# Preconfigured defaults for AD DC server installation
+# Preconfigured defaults for DB server installation
 # Note: the following are all the modifiable parameters for reference only (values are equal to hardcoded defaults)
 
 nicmacfix="false"
@@ -26,14 +26,12 @@ domain_name['lan']="lan.private"
 
 domain_join="false"
 
-# Note: to join and AD domain the nameserver should be an AD-integrated one
+# Note: to join an AD domain the nameserver should be an AD-integrated one
 my_nameserver="8.8.8.8"
 
 my_forwarders="8.8.8.8"
 
 my_name="bigmcintosh"
-
-dcname="spike"
 
 # Note: passwords must meet the DB complexity requirements
 root_password="HVP_dem0"
