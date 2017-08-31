@@ -31,7 +31,7 @@
 # Note: the default host naming uses the "My Little Pony" character name bigmcintosh
 # Note: the default addressing on connected networks is assumed to be 172.20.{10,12}.0/24 on {mgmt,lan}
 # Note: the default MTU is assumed to be 1500 on {mgmt,lan}
-# Note: the default machine IPs are assumed to be the 220th IPs available (network address + 220) on each connected network
+# Note: the default machine IPs are assumed to be the 230th IPs available (network address + 230) on each connected network
 # Note: the default domain names are assumed to be {mgmt,lan}.private
 # Note: the default domain action is "false" (do not join an AD domain)
 # Note: the default database type is postgresql
@@ -455,12 +455,6 @@ fi
 given_local_timezone=$(sed -n -e "s/^.*hvp_timezone=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_local_timezone}" ]; then
 	local_timezone="${given_local_timezone}"
-fi
-
-# Determine storage IPs offset base
-given_storage_offset=$(sed -n -e 's/^.*hvp_storage_offset=\(\S*\).*$/\1/p' /proc/cmdline)
-if echo "${given_storage_offset}" | grep -q '^[[:digit:]]\+$' ; then
-	storage_ip_offset="${given_storage_offset}"
 fi
 
 # Determine hostname
@@ -992,7 +986,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017082907"
+script_version="2017083101"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1583,7 +1577,6 @@ systemctl enable snmpd
 
 # Configure MRTG-Apache integration (allow access from everywhere)
 sed -i -e 's/^\(\s*\)\(Require local.*\)$/\1Require all granted/' /etc/httpd/conf.d/mrtg.conf
-
 
 # Configure Apache
 
