@@ -58,7 +58,7 @@ text
 # Uncomment the line below to automatically reboot at the end of installation
 # (must be sure that system does not try to loop-install again and again)
 # Note: this is needed for proper installation automation by means of virt-install
-# reboot
+reboot
 
 # Use the inserted optical media as in:
 cdrom
@@ -986,7 +986,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017083101"
+script_version="2017083102"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
