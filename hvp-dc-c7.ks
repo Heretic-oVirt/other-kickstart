@@ -1000,7 +1000,8 @@ cat << EOF >> rc.samba-dc
 		# Add an user with Unix attributes
 		# Note: newly created users will have default AD primary group set to the "Domain Users" (as per Windows AD default)
 		# Note: by default the "Domain Users" group has no gidNumber (even if it seems to have gidNumber 100)
-		# TODO: it seems that AD primary group still has precedence and forcing a different primary group by means of gid-number here does not work - find out why
+		# Note: whether AD or RFC2307bis primary group has precedence depends on idmapping backend on clients - Winbind >= 4.6.0 has unix_primary_group parameter
+		# TODO: find a proper idmapping parameter for SSSD too
 		# TODO: find a general way to define uid/gid values
 		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password='${root_password}'
 		# Add newly created user to the default "Domain Admins" group
@@ -1012,7 +1013,7 @@ cat << EOF >> rc.samba-dc
 		add: gidNumber
 		gidNumber: 10000
 		EOM
-		# Add gidNumber 10001 to "Domain Users" (it's needed anyway and works somewhat around the problem on primary groups)
+		# Add gidNumber 10001 to "Domain Users"
 		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
 		\\\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\\\$(wbinfo --name-to-sid "Domain Users" | awk '{print \\\$1}') | grep '^dn:')
 		changetype: modify
@@ -1086,7 +1087,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017083101"
+script_version="2017090501"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
