@@ -29,6 +29,8 @@ mtu['lan']="1500"
 domain_name['mgmt']="mgmt.private"
 domain_name['lan']="lan.private"
 
+ad_subdomain_prefix="ad"
+
 domain_join="false"
 
 sysvolrepl_password="HVP_dem0"
