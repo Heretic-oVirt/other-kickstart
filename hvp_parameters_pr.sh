@@ -22,6 +22,8 @@ mtu['lan']="1500"
 domain_name['mgmt']="mgmt.private"
 domain_name['lan']="lan.private"
 
+ad_subdomain_prefix="ad"
+
 domain_join="false"
 
 # Note: to join an AD domain the nameserver should be an AD-integrated one
