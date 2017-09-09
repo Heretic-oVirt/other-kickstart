@@ -15,6 +15,7 @@
 # Note: to force custom IPs add hvp_{mgmt,lan}_my_ip=t.t.t.t where t.t.t.t is the chosen IP on the given network
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
 # Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
+# Note: to force custom AD subdomain naming add hvp_ad_subdomainname=myprefix where myprefix is the subdomain name
 # Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an AD domain) or "false" (do not join an AD domain)
 # Note: to force custom nameserver IP add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
 # Note: to force custom forwarders IPs add hvp_forwarders=forw0,forw1,forw2 where forwN are the forwarders IPs
@@ -32,6 +33,7 @@
 # Note: the default MTU is assumed to be 1500 on {mgmt,lan}
 # Note: the default machine IPs are assumed to be the 250th IPs available (network address + 250) on each connected network
 # Note: the default domain names are assumed to be {mgmt,lan}.private
+# Note: the default AD subdomain name is assumed to be ad
 # Note: the default domain action is "false" (do not join an AD domain)
 # Note: the default nameserver IP is assumed to be 8.8.8.8
 # Note: the default forwarder IP is assumed to be 8.8.8.8
@@ -213,6 +215,7 @@ unset netmask
 unset network_base
 unset mtu
 unset domain_name
+unset ad_subdomain_prefix
 unset domain_join
 unset reverse_domain_name
 unset test_ip
@@ -255,6 +258,8 @@ mtu['lan']="1500"
 declare -A domain_name
 domain_name['mgmt']="mgmt.private"
 domain_name['lan']="lan.private"
+
+ad_subdomain_prefix="ad"
 
 domain_join="false"
 
@@ -464,6 +469,12 @@ if echo "${given_hostname}" | grep -q '^[[:alnum:]]\+$' ; then
 	my_name="${given_hostname}"
 fi
 
+# Determine AD subdomain name
+given_ad_subdomainname=$(sed -n -e "s/^.*hvp_ad_subdomainname=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_ad_subdomainname}" ]; then
+	ad_subdomain_prefix="${given_ad_subdomainname}"
+fi
+
 # Determine domain action
 given_joindomain=$(sed -n -e 's/^.*hvp_joindomain=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_joindomain}" | egrep -q '^(true|false)$' ; then
@@ -644,7 +655,7 @@ for zone in "${!network[@]}" ; do
 		fi
 		# Add hostname option on the lan zone only (or on mgmt if there is only one network)
 		if [ "${zone}" = "${my_zone}" ]; then
-			further_options="${further_options} --hostname=${my_name}.${domain_name[${zone}]}"
+			further_options="${further_options} --hostname=${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]}"
 		fi
 		# Single (plain) interface
 		cat <<- EOF >> /tmp/full-network
@@ -742,7 +753,7 @@ mkdir -p /tmp/hvp-ntpd-conf
 pushd /tmp/hvp-ntpd-conf
 if [ "${domain_join}" = "true" ]; then
 	# Make sure to sync only with the proper time reference (emulate Windows behaviour, using as reference the AD domain name to get back the DC holding the PDC emulator FSMO role)
-	ntp_server="${domain_name[${my_zone}]}"
+	ntp_server="${ad_subdomain_prefix}.${domain_name[${my_zone}]}"
 	cat <<- EOF > chrony.conf
 
 	server ${ntp_server} iburst
@@ -763,13 +774,14 @@ cat << EOF > hosts
 EOF
 for zone in "${!network[@]}" ; do
 	if [ "${zone}" = "${my_zone}" ]; then
-		additional_name=" ${my_name}"
+		cat <<- EOF >> hosts
+		${my_ip[${zone}]}		${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}
+		EOF
 	else
-		additional_name=""
+		cat <<- EOF >> hosts
+		${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]}
+		EOF
 	fi
-	cat <<- EOF >> hosts
-	${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]}${additional_name}
-	EOF
 done
 popd
 
@@ -790,7 +802,7 @@ EOF
 if [ "${domain_join}" = "true" ]; then
 	mkdir -p /tmp/hvp-domain-join
 	pushd /tmp/hvp-domain-join
-	realm_name=$(echo ${domain_name[${my_zone}]} | awk '{print toupper($0)}')
+	realm_name=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk '{print toupper($0)}')
 	cat <<- EOF > rc.domain-join
 	#!/bin/bash
 	# Setup krb5.conf properly
@@ -822,7 +834,7 @@ if [ "${domain_join}" = "true" ]; then
 	else
 	    klist
 	    # Note: we force use of Winbind here since we will need to enable Samba for printer sharing
-	    realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) --automatic-id-mapping=no --client-software=winbind ${domain_name[${my_zone}]}
+	    realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) --automatic-id-mapping=no --client-software=winbind ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
 	    kdestroy
 	    # TODO: default realmd-generated Winbind configuration is invalid (Winbind dies immediately) - modifying it - remove when fixed upstream
 	    netbios_domain=\$(awk '/^[[:space:]]*workgroup[[:space:]]*=/ {print \$3}' /etc/samba/smb.conf)
@@ -942,7 +954,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017090501"
+script_version="2017090801"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
