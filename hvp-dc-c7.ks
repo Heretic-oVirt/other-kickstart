@@ -15,6 +15,7 @@
 # Note: to force custom IPs add hvp_{mgmt,lan}_my_ip=t.t.t.t where t.t.t.t is the chosen IP on the given network
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
 # Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
+# Note: to force custom AD subdomain naming add hvp_ad_subdomainname=myprefix where myprefix is the subdomain name
 # Note: to force custom NetBIOS domain naming add hvp_netbiosdomain=MYDOM where MYDOM is the NetBIOS domain name
 # Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an existing domain) or "false" (create a new domain/forest)
 # Note: to force custom sysvol replication password add hvp_sysvolpassword=mysysvolsecret where mysysvolsecret is the sysvol replication password
@@ -36,7 +37,8 @@
 # Note: the default MTU is assumed to be 1500 on {mgmt,lan}
 # Note: the default machine IPs are assumed to be the 220th IPs available (network address + 220) on each connected network
 # Note: the default domain names are assumed to be {mgmt,lan}.private
-# Note: the default NetBIOS domain name is equal to the first part of the DNS domain name of the lan network (or mgmt if there is only one network) in uppercase
+# Note: the default AD subdomain name is assumed to be ad
+# Note: the default NetBIOS domain name is equal to the first part of the AD DNS subdomain name (on the lan network, or mgmt if there is only one network) in uppercase
 # Note: the default domain action is "false" (create a new domain/forest)
 # Note: the default sysvol replication password is HVP_dem0
 # Note: the default nameserver IP is assumed to be 8.8.8.8 during installation (afterwards it will be switched to 127.0.0.1 unconditionally)
@@ -225,6 +227,7 @@ unset netmask
 unset network_base
 unset mtu
 unset domain_name
+unset ad_subdomain_prefix
 unset netbios_domain_name
 unset domain_join
 unset sysvolrepl_password
@@ -288,6 +291,8 @@ sysvolrepl_password="HVP_dem0"
 declare -A reverse_domain_name
 reverse_domain_name['mgmt']="10.20.172.in-addr.arpa"
 reverse_domain_name['lan']="12.20.172.in-addr.arpa"
+
+ad_subdomain_prefix="ad"
 
 declare -A test_ip
 # Note: default values for test_ip derived below - defined here to allow loading as configuration parameters
@@ -513,6 +518,12 @@ if echo "${given_hostname}" | grep -q '^[[:alnum:]]\+$' ; then
 	my_name="${given_hostname}"
 fi
 
+# Determine AD subdomain name
+given_ad_subdomainname=$(sed -n -e "s/^.*hvp_ad_subdomainname=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_ad_subdomainname}" ]; then
+	ad_subdomain_prefix="${given_ad_subdomainname}"
+fi
+
 # Determine NetBIOS domain name
 given_netbiosdomain=$(sed -n -e 's/^.*hvp_netbiosdomain=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_netbiosdomain}" | grep -q '^[[:alnum:]]\+$' ; then
@@ -686,7 +697,7 @@ fi
 
 # Define default NetBIOS domain name if not specified
 if [ -z "${netbios_domain_name}" ]; then
-	netbios_domain_name=$(echo ${domain_name[${my_zone}]} | awk -F. '{print toupper($1)}')
+	netbios_domain_name=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print toupper($1)}')
 fi
 
 # Create network setup fragment
@@ -710,7 +721,7 @@ for zone in "${!network[@]}" ; do
 		fi
 		# Add hostname option on the lan zone only (or on mgmt if there is only one network)
 		if [ "${zone}" = "${my_zone}" ]; then
-			further_options="${further_options} --hostname=${my_name}.${domain_name[${zone}]}"
+			further_options="${further_options} --hostname=${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]}"
 		fi
 		# Single (plain) interface
 		cat <<- EOF >> /tmp/full-network
@@ -822,13 +833,14 @@ cat << EOF > hosts
 EOF
 for zone in "${!network[@]}" ; do
 	if [ "${zone}" = "${my_zone}" ]; then
-		additional_name=" ${my_name}"
+		cat <<- EOF >> hosts
+		${my_ip[${zone}]}		${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}
+		EOF
 	else
-		additional_name=""
+		cat <<- EOF >> hosts
+		${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]}
+		EOF
 	fi
-	cat <<- EOF >> hosts
-	${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]}${additional_name}
-	EOF
 done
 popd
 
@@ -848,7 +860,7 @@ EOF
 # Create Samba AD DC domain joining/provisioning script
 mkdir -p /tmp/hvp-samba-conf
 pushd /tmp/hvp-samba-conf
-realm_name=$(echo ${domain_name[${my_zone}]} | awk '{print toupper($0)}')
+realm_name=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk '{print toupper($0)}')
 cat << EOF > rc.samba-dc
 #!/bin/bash
 # Create secrets file for sysvol replication
@@ -860,7 +872,7 @@ chown root:root /etc/samba/rsync-sysvol.secret
 if [ "${domain_join}" = "true" ]; then
 	action="joining"
 	# Make sure to sync only with the proper time reference (emulate Windows behaviour, using as reference the DC holding the PDC emulator FSMO role)
-	domain_pdc_emulator=\$(dig _ldap._tcp.pdc._msdcs.${domain_name[${my_zone}]} SRV +short | awk '{print \$4}' | sed -e 's/[.]\$//')
+	domain_pdc_emulator=\$(dig _ldap._tcp.pdc._msdcs.${ad_subdomain_prefix}.${domain_name[${my_zone}]} SRV +short | awk '{print \$4}' | sed -e 's/[.]\$//')
 	# Note: if we failed to get the PDC emulator, then assume that the given nameserver is a proper reference
 	if [ -z "\${domain_pdc_emulator}" ]; then
 		domain_pdc_emulator="${my_nameserver}"
@@ -884,7 +896,7 @@ if [ "${domain_join}" = "true" ]; then
 	# Clean up any previous Samba settings
 	rm -f /etc/samba/smb.conf
 	# Perform domain joining
-	samba-tool domain join ${domain_name[${my_zone}]} DC --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" -U administrator@${realm_name} --password='${root_password}'
+	samba-tool domain join ${ad_subdomain_prefix}.${domain_name[${my_zone}]} DC --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" -U administrator@${realm_name} --password='${root_password}'
 	res=\$?
 else
 	action="provisioning"
@@ -981,29 +993,29 @@ if [ \${res} -eq 0 ]; then
 		# Note: it seems that we need to allow some time for the internal DNS to come up
 		sleep 30
 		# Add DNS reverse zone
-		samba-tool dns zonecreate ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} --username=administrator --password='${root_password}'
+		samba-tool dns zonecreate ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} --username=administrator --password='${root_password}'
 		# Add DNS A and PTR records for known machines
 		# Add DNS PTR record for ourselves
-	        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(echo ${my_ip[${my_zone}]} | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${my_name}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
+	        samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(echo ${my_ip[${my_zone}]} | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
 		# Add round-robin-resolved name for CTDB-controlled NFS/CIFS services
 		# TODO: find a way to add A records with a TTL of 1
 EOF
 for ((i=0;i<${active_storage_node_count};i=i+1)); do
 	cat <<- EOF >> rc.samba-dc
-	            samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password='${root_password}'
-	            samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
+	            samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password='${root_password}'
+	            samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
 	EOF
 done
 cat << EOF >> rc.samba-dc
 		# Add a generic group with Unix attributes
-		samba-tool group add "UnixUsers" --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10002 --username=administrator --password='${root_password}'
+		samba-tool group add "UnixUsers" --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10002 --username=administrator --password='${root_password}'
 		# Add an user with Unix attributes
 		# Note: newly created users will have default AD primary group set to the "Domain Users" (as per Windows AD default)
 		# Note: by default the "Domain Users" group has no gidNumber (even if it seems to have gidNumber 100)
 		# Note: whether AD or RFC2307bis primary group has precedence depends on idmapping backend on clients - Winbind >= 4.6.0 has unix_primary_group parameter
 		# TODO: find a proper idmapping parameter for SSSD too
 		# TODO: find a general way to define uid/gid values
-		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password='${root_password}'
+		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password='${root_password}'
 		# Add newly created user to the default "Domain Admins" group
 		samba-tool group addmembers "Domain Admins" "${winadmin_username}"
 		# Add gidNumber 10000 to "Domain Admins"
@@ -1033,7 +1045,7 @@ cat << EOF >> rc.samba-dc
 		# Note: it seems that we need to allow some time for the internal DNS to come up
 		sleep 30
 		# Add DNS PTR record for ourselves
-	        samba-tool dns add ${my_name}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(echo ${my_ip[${my_zone}]} | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${my_name}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
+	        samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(echo ${my_ip[${my_zone}]} | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
 		# Setup an rsync cron job for sysvol replication
 		cat <<- EOM > /etc/cron.d/sysvol-replication
 		# Run unidirectional sysvol replication from PDC emulator once every 5 minutes
@@ -1055,7 +1067,7 @@ cat << EOF >> rc.samba-dc
 		fi
 		sed -i -e '/^PEERDNS=/s/=.*\$/="no"/' -e '/^DNS[0-9]/d' -e '/^DOMAIN=/d' "\${nic_cfg_file}"
 		echo "DNS1=127.0.0.1" >> "\${nic_cfg_file}"
-		echo "DOMAIN=${domain_name[${my_zone}]}" >> "\${nic_cfg_file}"
+		echo "DOMAIN=${ad_subdomain_prefix}.${domain_name[${my_zone}]}" >> "\${nic_cfg_file}"
 		nmcli connection reload
 		# TODO: Connection reload seems not enough - restarting NetworkManager service regenerates /etc/resolv.conf as expected - investigate and correct nmcli command above
 		systemctl restart NetworkManager
@@ -1087,7 +1099,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017090501"
+script_version="2017090801"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
