@@ -1,4 +1,5 @@
 # Kickstart file for virtual print server
+# Note: minimum amount of RAM successfully tested for installation: 2048 MiB from network - 1024 MiB from local media
 
 # Install with commandline (see below for comments):
 # TODO: check each and every custom "hvp_" parameter below for overlap with default dracut/anaconda parameters and convert to using those instead
@@ -60,12 +61,8 @@ text
 # Note: this is needed for proper installation automation by means of virt-install
 reboot
 
-# Use the inserted optical media as in:
-cdrom
-# alternatively specify a NFS network share as in:
-# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
-# or an HTTP/FTP area as in:
-#url --url https://dangerous.ovirt.life/hvp-repos/el7/os
+# Installation source configuration dynamically generated in pre section below
+%include /tmp/full-installsource
 
 # System localization configuration dynamically generated in pre section below
 %include /tmp/full-localization
@@ -748,6 +745,33 @@ if cat /sys/class/dmi/id/sys_vendor | egrep -q -v "(Microsoft|VMware|innotek|Par
 	done
 fi
 
+# Create install source selection fragment
+# Note: we use a non-local (hd:) stage2 location as indicator of network boot
+given_stage2=$(sed -n -e 's/^.*inst\.stage2=\(\S*\).*$/\1/p' /proc/cmdline)
+if echo "${given_stage2}" | grep -q '^hd:' ; then
+	# Note: we assume that a local stage2 comes from a full DVD image (Packages repo included)
+	# TODO: detect use of NetBoot media (no local Packages repo)
+	cat <<- EOF > /tmp/full-installsource
+	# Use the inserted optical media as in:
+	cdrom
+	# alternatively specify a NFS network share as in:
+	# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
+	# or an HTTP/FTP area as in:
+	#url --url https://dangerous.ovirt.life/hvp-repos/el7/os
+	EOF
+else
+	# Note: we assume that a remote stage2 has been copied together with the full media content preserving the default DVD structure
+	# TODO: we assume a HTTP/FTP area - add support for NFS
+	cat <<- EOF > /tmp/full-installsource
+	# Specify a NFS network share as in:
+	# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
+	# or an HTTP/FTP area as in:
+	url --url ${given_stage2}
+	# alternatively use the inserted optical media as in:
+	#cdrom
+	EOF
+fi
+
 # Prepare NTPdate and Chrony configuration fragments to be appended later on below
 mkdir -p /tmp/hvp-ntpd-conf
 pushd /tmp/hvp-ntpd-conf
@@ -954,7 +978,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017090801"
+script_version="2017090901"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
