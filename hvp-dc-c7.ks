@@ -1,4 +1,5 @@
 # Kickstart file for virtual AD domain controller server
+# Note: minimum amount of RAM successfully tested for installation: 2048 MiB from network - 1024 MiB from local media
 
 # Install with commandline (see below for comments):
 # TODO: check each and every custom "hvp_" parameter below for overlap with default dracut/anaconda parameters and convert to using those instead
@@ -68,12 +69,8 @@ text
 # Note: this is needed for proper installation automation by means of virt-install
 reboot
 
-# Use the inserted optical media as in:
-cdrom
-# alternatively specify a NFS network share as in:
-# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
-# or an HTTP/FTP area as in:
-#url --url https://dangerous.ovirt.life/hvp-repos/el7/os
+# Installation source configuration dynamically generated in pre section below
+%include /tmp/full-installsource
 
 # System localization configuration dynamically generated in pre section below
 %include /tmp/full-localization
@@ -814,6 +811,33 @@ if cat /sys/class/dmi/id/sys_vendor | egrep -q -v "(Microsoft|VMware|innotek|Par
 	done
 fi
 
+# Create install source selection fragment
+# Note: we use a non-local (hd:) stage2 location as indicator of network boot
+given_stage2=$(sed -n -e 's/^.*inst\.stage2=\(\S*\).*$/\1/p' /proc/cmdline)
+if echo "${given_stage2}" | grep -q '^hd:' ; then
+	# Note: we assume that a local stage2 comes from a full DVD image (Packages repo included)
+	# TODO: detect use of NetBoot media (no local Packages repo)
+	cat <<- EOF > /tmp/full-installsource
+	# Use the inserted optical media as in:
+	cdrom
+	# alternatively specify a NFS network share as in:
+	# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
+	# or an HTTP/FTP area as in:
+	#url --url https://dangerous.ovirt.life/hvp-repos/el7/os
+	EOF
+else
+	# Note: we assume that a remote stage2 has been copied together with the full media content preserving the default DVD structure
+	# TODO: we assume a HTTP/FTP area - add support for NFS
+	cat <<- EOF > /tmp/full-installsource
+	# Specify a NFS network share as in:
+	# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
+	# or an HTTP/FTP area as in:
+	url --url ${given_stage2}
+	# alternatively use the inserted optical media as in:
+	#cdrom
+	EOF
+fi
+
 # Prepare NTPd configuration fragment to be appended later on below
 mkdir -p /tmp/hvp-ntpd-conf
 pushd /tmp/hvp-ntpd-conf
@@ -948,10 +972,12 @@ if [ \${res} -eq 0 ]; then
 		cp -a /var/lib/samba/private/idmap.ldb.bak /var/lib/samba/sysvolrepl/idmap.ldb
 		# Customize the rsyncd socket/service for sysvol replication
 		# Note: adapted from https://wiki.samba.org/index.php/Rsync_based_SysVol_replication_workaround
+		mkdir -p /etc/systemd/system/rsyncd.socket.d
 		cat <<- EOM > /etc/systemd/system/rsyncd.socket.d/custom-bindlimit.conf
 		[Socket]
 		BindToDevice = ${nics[${my_zone}]}
 		EOM
+		mkdir -p /etc/systemd/system/rsyncd@.service.d
 		cat <<- EOM > /etc/systemd/system/rsyncd@.service.d/custom-scheduling.conf
 		[Service]
 		IOSchedulingClass = idle
@@ -1002,8 +1028,8 @@ if [ \${res} -eq 0 ]; then
 EOF
 for ((i=0;i<${active_storage_node_count};i=i+1)); do
 	cat <<- EOF >> rc.samba-dc
-	            samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password='${root_password}'
-	            samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
+	                samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password='${root_password}'
+	                samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
 	EOF
 done
 cat << EOF >> rc.samba-dc
@@ -1015,26 +1041,27 @@ cat << EOF >> rc.samba-dc
 		# Note: whether AD or RFC2307bis primary group has precedence depends on idmapping backend on clients - Winbind >= 4.6.0 has unix_primary_group parameter
 		# TODO: find a proper idmapping parameter for SSSD too
 		# TODO: find a general way to define uid/gid values
+		# TODO: GPO files inside sysvol have an unmapped ownership with uid 3000004 - find out why and correct
 		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password='${root_password}'
 		# Add newly created user to the default "Domain Admins" group
 		samba-tool group addmembers "Domain Admins" "${winadmin_username}"
 		# Add gidNumber 10000 to "Domain Admins"
 		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
-		\\\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\\\$(wbinfo --name-to-sid "Domain Admins" | awk '{print \\\$1}') | grep '^dn:')
+		\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "Domain Admins" | awk '{print \$1}') | grep '^dn:')
 		changetype: modify
 		add: gidNumber
 		gidNumber: 10000
 		EOM
 		# Add gidNumber 10001 to "Domain Users"
 		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
-		\\\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\\\$(wbinfo --name-to-sid "Domain Users" | awk '{print \\\$1}') | grep '^dn:')
+		\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "Domain Users" | awk '{print \$1}') | grep '^dn:')
 		changetype: modify
 		add: gidNumber
 		gidNumber: 10001
 		EOM
 		# Add uidNumber 10000 and gidNumber 10001 to "administrator"
 		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
-		\\\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\\\$(wbinfo --name-to-sid "administrator" | awk '{print \\\$1}') | grep '^dn:')
+		\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "administrator" | awk '{print \$1}') | grep '^dn:')
 		changetype: modify
 		add: uidNumber
 		uidNumber: 10000
@@ -1099,7 +1126,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017090801"
+script_version="2017090903"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
