@@ -20,7 +20,6 @@
 # Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an AD domain) or "false" (do not join an AD domain)
 # Note: to force custom database type add hvp_dbtype=dddd where dddd is the database type (either postgresql, mysql, firebird or sqlserver)
 # Note: to force custom nameserver IP add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
-# Note: to force custom forwarders IPs add hvp_forwarders=forw0,forw1,forw2 where forwN are the forwarders IPs
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
 # Note: to force custom root password add hvp_rootpwd=mysecret where mysecret is the root user password
 # Note: to force custom admin username add hvp_adminname=myadmin where myadmin is the admin username
@@ -39,7 +38,6 @@
 # Note: the default domain action is "false" (do not join an AD domain)
 # Note: the default database type is postgresql
 # Note: the default nameserver IP is assumed to be 8.8.8.8
-# Note: the default forwarder IP is assumed to be 8.8.8.8
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
 # Note: the default root user password is HVP_dem0
 # Note: the default admin username is hvpadmin
@@ -105,7 +103,7 @@ selinux --enforcing
 # Explicitly list provided repositories
 # Note: no additional repos setup - further packages/updates installed manually in post section
 #repo --name="CentOS"  --baseurl=cdrom:sr0 --cost=100
-#repo --name="HVP-mirror" --baseurl=https://dangerous.ovirt.life/hvp-repos/el7/os
+#repo --name="HVP-mirror" --baseurl=https://dangerous.ovirt.life/hvp-repos/el7/centos
 
 # Packages list - package groups are preceded by an "@" sign - excluded packages by an "-" sign
 # Note: some virtualization technologies (VMware, Parallels, VirtualBox) require gcc, kernel-devel and dkms (from external repo) packages
@@ -223,7 +221,6 @@ unset test_ip_offset
 unset my_ip_offset
 unset my_name
 unset my_nameserver
-unset my_forwarders
 unset my_gateway
 unset root_password
 unset admin_username
@@ -273,8 +270,6 @@ declare -A test_ip
 # Note: default values for test_ip derived below - defined here to allow loading as configuration parameters
 
 my_nameserver="8.8.8.8"
-
-my_forwarders="8.8.8.8"
 
 my_name="bigmcintosh"
 
@@ -491,12 +486,6 @@ if [ -n "${given_nameserver}" ]; then
 	my_nameserver="${given_nameserver}"
 fi
 
-# Determine forwarders addresses
-given_forwarders=$(sed -n -e "s/^.*hvp_forwarders=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-if [ -n "${given_forwarders}" ]; then
-	my_forwarders="${given_forwarders}"
-fi
-
 # Determine gateway address
 given_gateway=$(sed -n -e "s/^.*hvp_gateway=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_gateway}" ]; then
@@ -568,6 +557,8 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 	if nmcli device show "${nic_name}" | grep -q '^GENERAL.STATE:.*(connected)' ; then
 		nmcli device disconnect "${nic_name}"
 		nmcli connection delete "${nic_name}"
+		ip addr flush dev "${nic_name}"
+		ip link set mtu 1500 dev "${nic_name}"
 	fi
 done
 
@@ -587,6 +578,7 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			effective_mtu=$(cat /sys/class/net/${nic_name}/mtu 2>/dev/null)
 			if [ ${res} -ne 0 -o "${effective_mtu}" != "${mtu[${zone}]}" ] ; then
 				ip addr flush dev "${nic_name}"
+				ip link set mtu 1500 dev "${nic_name}"
 				continue
 			fi
 			unset PREFIX
@@ -595,15 +587,21 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			res=$?
 			if [ ${res} -ne 0 ] ; then
 				ip addr flush dev "${nic_name}"
+				ip link set mtu 1500 dev "${nic_name}"
 				continue
 			fi
+			# Note: adding extra sleep and ping to work around possible hardware delays
+			sleep 2
+			ping -c 3 -w 8 -i 2 "${test_ip[${zone}]}" > /dev/null 2>&1
 			if ping -c 3 -w 8 -i 2 "${test_ip[${zone}]}" > /dev/null 2>&1 ; then
 				nics["${zone}"]="${nics[${zone}]} ${nic_name}"
 				nic_assigned='true'
 				ip addr flush dev "${nic_name}"
+				ip link set mtu 1500 dev "${nic_name}"
 				break
 			fi
 			ip addr flush dev "${nic_name}"
+			ip link set mtu 1500 dev "${nic_name}"
 		done
 		if [ "${nic_assigned}" = "false" ]; then
 			nics['unused']="${nics['unused']} ${nic_name}"
@@ -641,6 +639,10 @@ fi
 # Create network setup fragment
 # Note: dynamically created here to make use of full autodiscovery above
 # Note: defining statically configured access to autodetected networks
+# Note: listing interfaces using reverse alphabetical order for networks (results in: mgmt, lan, gluster)
+# TODO: Anaconda/NetworkManager do not add DEFROUTE="no" and MTU="xxxx" parameters - adding workarounds here - remove when fixed upstream
+mkdir -p /tmp/hvp-networkmanager-conf
+pushd /tmp/hvp-networkmanager-conf
 cat << EOF > /tmp/full-network
 # Network device configuration - static version (always verify that your nic is supported by install kernel/modules)
 # Use a "void" configuration to make sure anaconda quickly steps over "onboot=no" devices
@@ -654,8 +656,12 @@ for zone in "${!network[@]}" ; do
 		eval $(ipcalc -s -n "${my_gateway}" "${netmask[${zone}]}")
 		if [ "${NETWORK}" = "${network[${zone}]}" ]; then
 			further_options="${further_options} --gateway=${my_gateway} --nameserver=${my_nameserver}"
+			# TODO: workaround for Anaconda/NetworkManager bug - remove when fixed upstream
+			echo 'DEFROUTE="yes"' >> ifcfg-${nic_names}
 		else
 			further_options="${further_options} --nodefroute"
+			# TODO: workaround for Anaconda/NetworkManager bug - remove when fixed upstream
+			echo 'DEFROUTE="no"' >> ifcfg-${nic_names}
 		fi
 		# Add hostname option on the lan zone only (or on mgmt if there is only one network)
 		if [ "${zone}" = "${my_zone}" ]; then
@@ -665,6 +671,8 @@ for zone in "${!network[@]}" ; do
 		cat <<- EOF >> /tmp/full-network
 		network --device=${nic_names} --activate --onboot=yes --bootproto=static --ip=${my_ip[${zone}]} --netmask=${netmask[${zone}]} --mtu=${mtu[${zone}]} ${further_options}
 		EOF
+		# TODO: workaround for Anaconda/NetworkManager bug - remove when fixed upstream
+		echo "MTU=\"${mtu[${zone}]}\"" >> ifcfg-${nic_names}
 	fi
 done
 for nic_name in ${nics['unused']} ; do
@@ -675,6 +683,7 @@ for nic_name in ${nics['unused']} ; do
 	network --device=${nic_name} --no-activate --nodefroute --onboot=no
 	EOF
 done
+popd
 
 # Create users setup fragment
 cat << EOF > /tmp/full-users
@@ -756,27 +765,31 @@ fi
 # Note: we use a non-local (hd:) stage2 location as indicator of network boot
 given_stage2=$(sed -n -e 's/^.*inst\.stage2=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_stage2}" | grep -q '^hd:' ; then
-	# Note: we assume that a local stage2 comes from a full DVD image (Packages repo included)
-	# TODO: detect use of NetBoot media (no local Packages repo)
-	cat <<- EOF > /tmp/full-installsource
-	# Use the inserted optical media as in:
-	cdrom
-	# alternatively specify a NFS network share as in:
-	# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
-	# or an HTTP/FTP area as in:
-	#url --url https://dangerous.ovirt.life/hvp-repos/el7/os
-	EOF
-else
-	# Note: we assume that a remote stage2 has been copied together with the full media content preserving the default DVD structure
-	# TODO: we assume a HTTP/FTP area - add support for NFS
-	cat <<- EOF > /tmp/full-installsource
-	# Specify a NFS network share as in:
-	# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
-	# or an HTTP/FTP area as in:
-	url --url ${given_stage2}
-	# alternatively use the inserted optical media as in:
-	#cdrom
-	EOF
+	# Detect use of NetInstall media
+	if [ -d /run/install/repo/repodata ]; then
+		# Note: we know that the local stage2 comes from a full DVD image (Packages repo included)
+		cat <<- EOF > /tmp/full-installsource
+		# Use the inserted optical media as in:
+		cdrom
+		# alternatively specify a NFS network share as in:
+		# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
+		# or an HTTP/FTP area as in:
+		#url --url https://dangerous.ovirt.life/hvp-repos/el7/os
+		EOF
+	else
+		# Note: since we detected use of NetInstall media (no local repo) we use network install source deduced from kickstart location
+		# Note: a subdir tree equal to HVP site is assumed
+		given_stage2=$(sed -n -e 's/^.*inst\.ks=\(\S*\).*$/\1/p' /proc/cmdline | sed -e 's>/[^/]*/[^/]*$>/centos>')
+		# TODO: we assume a HTTP/FTP area - add support for NFS
+		cat <<- EOF > /tmp/full-installsource
+		# Specify a NFS network share as in:
+		# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
+		# or an HTTP/FTP area as in:
+		url --url ${given_stage2}
+		# alternatively use the inserted optical media as in:
+		#cdrom
+		EOF
+	fi
 fi
 
 # Prepare NTPdate and Chrony configuration fragments to be appended later on below
@@ -1022,7 +1035,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017090901"
+script_version="2017092401"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -2256,7 +2269,7 @@ cfgmaker --output /etc/mrtg/mrtg.cfg --global "HtmlDir: /var/www/mrtg" --global 
 
 # Set execution mode parameters
 # Note: on CentOS7 MRTG is preferably configured as an always running service (for efficiency reasons)
-sed -i -e '/Global Config Options/s/^\\(.*\\)\$/\\1\nRunAsDaemon: Yes\\nInterval: 5\\nNoDetach: Yes/' /etc/mrtg/mrtg.cfg
+sed -i -e '/Global Config Options/s/^\\(.*\\)\$/\\1\\nRunAsDaemon: Yes\\nInterval: 5\\nNoDetach: Yes/' /etc/mrtg/mrtg.cfg
 
 # Setup MRTG index page
 indexmaker --output=/var/www/mrtg/index.html /etc/mrtg/mrtg.cfg
@@ -2383,6 +2396,13 @@ fi
 if [ -f /tmp/hvp-tcp_wrappers-conf/hosts.allow ]; then
 	cat /tmp/hvp-tcp_wrappers-conf/hosts.allow >> /mnt/sysimage/etc/hosts.allow
 fi
+
+# TODO: perform NetworkManager workaround configuration on interfaces as detected in pre section above - remove when fixed upstream
+for file in /tmp/hvp-networkmanager-conf/ifcfg-* ; do
+	cfg_file_name=$(basename ${file})
+	sed -i -e '/^DEFROUTE=/d' -e '/^MTU=/d' /mnt/sysimage/etc/sysconfig/network-scripts/${cfg_file_name}
+	cat ${file} >> /mnt/sysimage/etc/sysconfig/network-scripts/${cfg_file_name}
+done
 
 # Save exact pre-stage environment
 if [ -f /tmp/pre.out ]; then
