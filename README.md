@@ -8,13 +8,13 @@ hvp-db-c7.ks - kickstart file for a CentOS7 database (either PostgreSQL, MySQL, 
 
 hvp-pr-c7.ks - kickstart file for a CentOS7 printer server (Samba) machine
 
+hvp-vd-c7.ks - kickstart file for a CentOS7 virtual desktop machine
+
 Future planned kickstart files (all further virtual machines should be joined to the AD domain created above):
 
 hvp-erp-c7.ks - kickstart file for a CentOS7 application/ERP (TBD) machine
 
 hvp-fw-c7.ks - kickstart file for a CentOS7 firewall/proxy/VPN (firewalld/Squid/Strongswan) machine
-
-hvp-vd-c7.ks - kickstart file for a CentOS7 virtual desktop machine
 
 hvp-vd-win10.xml - autounattend file for a Windows10 virtual desktop machine
 
