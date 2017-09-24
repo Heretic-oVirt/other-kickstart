@@ -111,7 +111,7 @@ selinux --enforcing
 # Explicitly list provided repositories
 # Note: no additional repos setup - further packages/updates installed manually in post section
 #repo --name="CentOS"  --baseurl=cdrom:sr0 --cost=100
-#repo --name="HVP-mirror" --baseurl=https://dangerous.ovirt.life/hvp-repos/el7/os
+#repo --name="HVP-mirror" --baseurl=https://dangerous.ovirt.life/hvp-repos/el7/centos
 
 # Packages list - package groups are preceded by an "@" sign - excluded packages by an "-" sign
 # Note: some virtualization technologies (VMware, Parallels, VirtualBox) require gcc, kernel-devel and dkms (from external repo) packages
@@ -622,6 +622,8 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 	if nmcli device show "${nic_name}" | grep -q '^GENERAL.STATE:.*(connected)' ; then
 		nmcli device disconnect "${nic_name}"
 		nmcli connection delete "${nic_name}"
+		ip addr flush dev "${nic_name}"
+		ip link set mtu 1500 dev "${nic_name}"
 	fi
 done
 
@@ -641,6 +643,7 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			effective_mtu=$(cat /sys/class/net/${nic_name}/mtu 2>/dev/null)
 			if [ ${res} -ne 0 -o "${effective_mtu}" != "${mtu[${zone}]}" ] ; then
 				ip addr flush dev "${nic_name}"
+				ip link set mtu 1500 dev "${nic_name}"
 				continue
 			fi
 			unset PREFIX
@@ -649,15 +652,21 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			res=$?
 			if [ ${res} -ne 0 ] ; then
 				ip addr flush dev "${nic_name}"
+				ip link set mtu 1500 dev "${nic_name}"
 				continue
 			fi
+			# Note: adding extra sleep and ping to work around possible hardware delays
+			sleep 2
+			ping -c 3 -w 8 -i 2 "${test_ip[${zone}]}" > /dev/null 2>&1
 			if ping -c 3 -w 8 -i 2 "${test_ip[${zone}]}" > /dev/null 2>&1 ; then
 				nics["${zone}"]="${nics[${zone}]} ${nic_name}"
 				nic_assigned='true'
 				ip addr flush dev "${nic_name}"
+				ip link set mtu 1500 dev "${nic_name}"
 				break
 			fi
 			ip addr flush dev "${nic_name}"
+			ip link set mtu 1500 dev "${nic_name}"
 		done
 		if [ "${nic_assigned}" = "false" ]; then
 			nics['unused']="${nics['unused']} ${nic_name}"
@@ -700,6 +709,10 @@ fi
 # Create network setup fragment
 # Note: dynamically created here to make use of full autodiscovery above
 # Note: defining statically configured access to autodetected networks
+# Note: listing interfaces using reverse alphabetical order for networks (results in: mgmt, lan, gluster)
+# TODO: Anaconda/NetworkManager do not add DEFROUTE="no" and MTU="xxxx" parameters - adding workarounds here - remove when fixed upstream
+mkdir -p /tmp/hvp-networkmanager-conf
+pushd /tmp/hvp-networkmanager-conf
 cat << EOF > /tmp/full-network
 # Network device configuration - static version (always verify that your nic is supported by install kernel/modules)
 # Use a "void" configuration to make sure anaconda quickly steps over "onboot=no" devices
@@ -713,8 +726,12 @@ for zone in "${!network[@]}" ; do
 		eval $(ipcalc -s -n "${my_gateway}" "${netmask[${zone}]}")
 		if [ "${NETWORK}" = "${network[${zone}]}" ]; then
 			further_options="${further_options} --gateway=${my_gateway} --nameserver=${my_nameserver}"
+			# TODO: workaround for Anaconda/NetworkManager bug - remove when fixed upstream
+			echo 'DEFROUTE="yes"' >> ifcfg-${nic_names}
 		else
 			further_options="${further_options} --nodefroute"
+			# TODO: workaround for Anaconda/NetworkManager bug - remove when fixed upstream
+			echo 'DEFROUTE="no"' >> ifcfg-${nic_names}
 		fi
 		# Add hostname option on the lan zone only (or on mgmt if there is only one network)
 		if [ "${zone}" = "${my_zone}" ]; then
@@ -724,6 +741,8 @@ for zone in "${!network[@]}" ; do
 		cat <<- EOF >> /tmp/full-network
 		network --device=${nic_names} --activate --onboot=yes --bootproto=static --ip=${my_ip[${zone}]} --netmask=${netmask[${zone}]} --mtu=${mtu[${zone}]} ${further_options}
 		EOF
+		# TODO: workaround for Anaconda/NetworkManager bug - remove when fixed upstream
+		echo "MTU=\"${mtu[${zone}]}\"" >> ifcfg-${nic_names}
 	fi
 done
 for nic_name in ${nics['unused']} ; do
@@ -734,6 +753,7 @@ for nic_name in ${nics['unused']} ; do
 	network --device=${nic_name} --no-activate --nodefroute --onboot=no
 	EOF
 done
+popd
 
 # Create users setup fragment
 cat << EOF > /tmp/full-users
@@ -815,27 +835,31 @@ fi
 # Note: we use a non-local (hd:) stage2 location as indicator of network boot
 given_stage2=$(sed -n -e 's/^.*inst\.stage2=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_stage2}" | grep -q '^hd:' ; then
-	# Note: we assume that a local stage2 comes from a full DVD image (Packages repo included)
-	# TODO: detect use of NetBoot media (no local Packages repo)
-	cat <<- EOF > /tmp/full-installsource
-	# Use the inserted optical media as in:
-	cdrom
-	# alternatively specify a NFS network share as in:
-	# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
-	# or an HTTP/FTP area as in:
-	#url --url https://dangerous.ovirt.life/hvp-repos/el7/os
-	EOF
-else
-	# Note: we assume that a remote stage2 has been copied together with the full media content preserving the default DVD structure
-	# TODO: we assume a HTTP/FTP area - add support for NFS
-	cat <<- EOF > /tmp/full-installsource
-	# Specify a NFS network share as in:
-	# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
-	# or an HTTP/FTP area as in:
-	url --url ${given_stage2}
-	# alternatively use the inserted optical media as in:
-	#cdrom
-	EOF
+	# Detect use of NetInstall media
+	if [ -d /run/install/repo/repodata ]; then
+		# Note: we know that the local stage2 comes from a full DVD image (Packages repo included)
+		cat <<- EOF > /tmp/full-installsource
+		# Use the inserted optical media as in:
+		cdrom
+		# alternatively specify a NFS network share as in:
+		# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
+		# or an HTTP/FTP area as in:
+		#url --url https://dangerous.ovirt.life/hvp-repos/el7/os
+		EOF
+	else
+		# Note: since we detected use of NetInstall media (no local repo) we use network install source deduced from kickstart location
+		# Note: a subdir tree equal to HVP site is assumed
+		given_stage2=$(sed -n -e 's/^.*inst\.ks=\(\S*\).*$/\1/p' /proc/cmdline | sed -e 's>/[^/]*/[^/]*$>/centos>')
+		# TODO: we assume a HTTP/FTP area - add support for NFS
+		cat <<- EOF > /tmp/full-installsource
+		# Specify a NFS network share as in:
+		# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
+		# or an HTTP/FTP area as in:
+		url --url ${given_stage2}
+		# alternatively use the inserted optical media as in:
+		#cdrom
+		EOF
+	fi
 fi
 
 # Prepare NTPd configuration fragment to be appended later on below
@@ -957,8 +981,11 @@ if [ \${res} -eq 0 ]; then
 		rm -f /var/lib/samba/private/idmap.ldb
 		rsync -XAavz --password-file=/etc/samba/rsync-sysvol.secret rsync://\${domain_pdc_emulator}/SysVolRepl/idmap.ldb /var/lib/samba/private/
 		restorecon -v /var/lib/samba/private/idmap.ldb
+		# Force removal of genchache
+		# TODO: maybe needed only when using winbindd, not winbind - remove the following line if it is so
+		rm -f /var/cache/samba/gencache.tdb
 		# Reset sysvol ACLs 
-		# TODO: possible errors here - debug
+		# TODO: possible errors here - debug - maybe needs samba running?
 		samba-tool ntacl sysvolreset
 	fi
 	# Enable and start Samba AD DC
@@ -966,10 +993,6 @@ if [ \${res} -eq 0 ]; then
 	# Restart NTPd
 	systemctl restart ntpd
 	if [ "${domain_join}" != "true" ]; then
-		# Prepare an idmap-db cold backup for further DCs (to keep BUILTIN ids aligned)
-		tdbbackup -s .bak /var/lib/samba/private/idmap.ldb
-		mkdir -p /var/lib/samba/sysvolrepl
-		cp -a /var/lib/samba/private/idmap.ldb.bak /var/lib/samba/sysvolrepl/idmap.ldb
 		# Customize the rsyncd socket/service for sysvol replication
 		# Note: adapted from https://wiki.samba.org/index.php/Rsync_based_SysVol_replication_workaround
 		mkdir -p /etc/systemd/system/rsyncd.socket.d
@@ -1033,25 +1056,22 @@ for ((i=0;i<${active_storage_node_count};i=i+1)); do
 	EOF
 done
 cat << EOF >> rc.samba-dc
-		# Add a generic group with Unix attributes
-		samba-tool group add "UnixUsers" --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10002 --username=administrator --password='${root_password}'
+		# Add generic groups with Unix attributes
+		samba-tool group add "Unix Admins" --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10002 --username=administrator --password='${root_password}'
+		samba-tool group add "Unix Users" --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10003 --username=administrator --password='${root_password}'
+		# Add newly created "Unix Admins" group to the "Domain Admins" group
+		samba-tool group addmembers "Domain Admins" "Unix Admins"
 		# Add an user with Unix attributes
 		# Note: newly created users will have default AD primary group set to the "Domain Users" (as per Windows AD default)
-		# Note: by default the "Domain Users" group has no gidNumber (even if it seems to have gidNumber 100)
+		# Note: by default the "Domain Users" group has no gidNumber (even if it seems to have gidNumber 100 but that could be xidNumber)
 		# Note: whether AD or RFC2307bis primary group has precedence depends on idmapping backend on clients - Winbind >= 4.6.0 has unix_primary_group parameter
 		# TODO: find a proper idmapping parameter for SSSD too
 		# TODO: find a general way to define uid/gid values
-		# TODO: GPO files inside sysvol have an unmapped ownership with uid 3000004 - find out why and correct
+		# TODO: GPO files inside sysvol have an unmapped ownership with a strange uid, eg: 3000004 - find out why and correct - may be unneeded: sysvol files ownership should not matter (they seem to be for uids/gids not registered in AD on purpose)
 		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password='${root_password}'
-		# Add newly created user to the default "Domain Admins" group
-		samba-tool group addmembers "Domain Admins" "${winadmin_username}"
-		# Add gidNumber 10000 to "Domain Admins"
-		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
-		\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "Domain Admins" | awk '{print \$1}') | grep '^dn:')
-		changetype: modify
-		add: gidNumber
-		gidNumber: 10000
-		EOM
+		# Add newly created user to the "Unix Admins" group
+		samba-tool group addmembers "Unix Admins" "${winadmin_username}"
+		# Note: do not add gidNumber 10000 to "Domain Admins" - it seems that having a gidNumber may interfer with sysvol files ownership - https://www.spinics.net/lists/samba/msg143752.html
 		# Add gidNumber 10001 to "Domain Users"
 		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
 		\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "Domain Users" | awk '{print \$1}') | grep '^dn:')
@@ -1059,15 +1079,21 @@ cat << EOF >> rc.samba-dc
 		add: gidNumber
 		gidNumber: 10001
 		EOM
-		# Add uidNumber 10000 and gidNumber 10001 to "administrator"
-		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
-		\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "administrator" | awk '{print \$1}') | grep '^dn:')
-		changetype: modify
-		add: uidNumber
-		uidNumber: 10000
-		add: gidNumber
-		gidNumber: 10001
-		EOM
+		# TODO: Add uidNumber 10000 and gidNumber 10001 to "administrator"
+		# TODO: verify whether this too may impact sysvol files ownership - https://www.spinics.net/lists/samba/msg143752.html
+		# TODO: on the other side the current default of 0 may be improper: https://bugzilla.samba.org/show_bug.cgi?id=9837
+		#cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		#\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "administrator" | awk '{print \$1}') | grep '^dn:')
+		#changetype: modify
+		#add: uidNumber
+		#uidNumber: 10000
+		#add: gidNumber
+		#gidNumber: 10001
+		#EOM
+		# Prepare an idmap-db cold backup for further DCs (to keep BUILTIN ids aligned)
+		tdbbackup -s .bak /var/lib/samba/private/idmap.ldb
+		mkdir -p /var/lib/samba/sysvolrepl
+		cp -a /var/lib/samba/private/idmap.ldb.bak /var/lib/samba/sysvolrepl/idmap.ldb
 	else
 		# Note: it seems that we need to allow some time for the internal DNS to come up
 		sleep 30
@@ -1126,7 +1152,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017090903"
+script_version="2017092401"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -2185,6 +2211,13 @@ fi
 if [ -f /tmp/hvp-tcp_wrappers-conf/hosts.allow ]; then
 	cat /tmp/hvp-tcp_wrappers-conf/hosts.allow >> /mnt/sysimage/etc/hosts.allow
 fi
+
+# TODO: perform NetworkManager workaround configuration on interfaces as detected in pre section above - remove when fixed upstream
+for file in /tmp/hvp-networkmanager-conf/ifcfg-* ; do
+	cfg_file_name=$(basename ${file})
+	sed -i -e '/^DEFROUTE=/d' -e '/^MTU=/d' /mnt/sysimage/etc/sysconfig/network-scripts/${cfg_file_name}
+	cat ${file} >> /mnt/sysimage/etc/sysconfig/network-scripts/${cfg_file_name}
+done
 
 # Save exact pre-stage environment
 if [ -f /tmp/pre.out ]; then
