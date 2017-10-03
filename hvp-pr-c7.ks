@@ -304,7 +304,7 @@ else
 		fi
 		ks_dir="$(echo ${ks_path} | sed 's%/[^/]*$%%')"
 	elif echo "${ks_source}" | grep -q '^cdrom:' ; then
-		# Note: cdrom gets accessed as real device name which must be detected - assuming it's the first removable device
+		# Note: cdrom gets accessed as real device name which must be detected - assuming it is the first removable device
 		# Note: hardcoded possible device names for CD/DVD - should cover all reasonable cases
 		# Note: on RHEL>=6 even IDE/ATAPI devices have SCSI device names
 		for dev in /dev/sd[a-z] /dev/sr[0-9]; do
@@ -894,7 +894,7 @@ EOF
 if [ "${domain_join}" = "true" ]; then
 	cat <<- EOF >> rc.pr-provision
 	# Disable home directories sharing
-	sed -i -e '/^\\[homes\\]/s/\$/\\navailable = no/' -e '/^\\[global\\]/s/\$/\\nserver string = Print Server/' /etc/samba/smb.conf
+	sed -i -e '/^\\[homes\\]/s/\$/\\navailable = no/' -e '/^\\[global\\]/s/\$/\\nserver string = Enterprise Print Server/' /etc/samba/smb.conf
 	EOF
 else
 	cat <<- EOF >> rc.pr-provision
@@ -903,7 +903,7 @@ else
 	# Create generic workgroup setup
 	cat <<- EOM > /etc/samba/smb.conf
 	[global]
-	   server string = Print Server
+	   server string = Workgroup Print Server
 	   netbios name = $(echo "${storage_name}" | awk '{print toupper($0)}')
 	   workgroup = WORKGROUP
 	   security = user
@@ -991,7 +991,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017092401"
+script_version="2017100301"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
