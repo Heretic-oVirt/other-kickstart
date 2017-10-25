@@ -32,7 +32,7 @@
 # Note: the default host naming uses the "My Little Pony" character name grannysmith
 # Note: the default addressing on connected networks is assumed to be 172.20.{10,12}.0/24 on {mgmt,lan}
 # Note: the default MTU is assumed to be 1500 on {mgmt,lan}
-# Note: the default machine IPs are assumed to be the 230th IPs available (network address + 230) on each connected network
+# Note: the default machine IPs are assumed to be the 240th IPs available (network address + 240) on each connected network
 # Note: the default domain names are assumed to be {mgmt,lan}.private
 # Note: the default AD subdomain name is assumed to be ad
 # Note: the default domain action is "false" (do not join an AD domain)
@@ -935,7 +935,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017092401"
+script_version="2017102501"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1148,11 +1148,11 @@ elif dmidecode -s system-manufacturer | grep -q "oVirt" ; then
 elif dmidecode -s system-manufacturer | grep -q "Microsoft" ; then
 	yum -y install hyperv-daemons
 elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
-	# Note: VMware basic support installed here (since it's included in base distro now)
+	# Note: VMware basic support installed here (since it is included in base distro now)
 	yum -y install open-vm-tools open-vm-tools-desktop fuse
-	# Note: the following is needed to recompile external VMHGFS support from VMwareTools - separately installed since it's not needed on server machines
+	# Note: the following is needed to recompile external VMHGFS support from VMwareTools - separately installed since it is not needed on server machines
 	# TODO: disabled since required development packages cannot be installed
-	# TODO: switch to VMware repo and install vmhgfs kmod package from there
+	# TODO: switch to use of vmhgfs support internal to latest open-vm-tools package
 	#yum -y install fuse-devel
 fi
 
@@ -1165,7 +1165,7 @@ else
 	yum -y install mcelog
 fi
 
-# Add virtualization support on suitable physical platforms
+# Add virtualization support on suitable platforms
 if egrep '^flags:.*(svm|vmx)' /proc/cpuinfo ; then
 	yum -y install centos-release-qemu-ev
 	yum -y install qemu-kvm qemu-img virt-manager libvirt libvirt-python libvirt-client virt-install virt-viewer virt-top libguestfs numpy
@@ -1242,8 +1242,7 @@ if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Par
 	sed -i -e '/Handle[^=]*=[^i]/s/^#\(Handle[^=]*\)=.*$/\1=ignore/' /etc/systemd/logind.conf
 fi
 
-# Configure systemd (no shutdown from keyboard)
-systemctl mask ctrl-alt-del.target
+# Note: no need to further restrict keyboard shutdown on a personal/desktop machine
 
 # Configure kernel behaviour
 
@@ -1630,7 +1629,7 @@ cat << EOF > /var/www/html/index.html
 					<h2>Avvertenza per gli utenti del servizio:</h2>
 					<p>Questa macchina fornisce servizi di desktop grafico.</p>
 					<h2>Se siete parte del personale tecnico:</h2>
-					<p>Le funzionalit&agrave; predisposte per l'amministrazione/controllo sono elencate di seguito.
+					<p>Le funzionalit&agrave; predisposte per amministrazione/controllo sono elencate di seguito.
 					<ul>
 						<li>Lo strumento web di amministrazione della macchina &egrave; disponibile <a href="/manage/">qui</a>.</li>
 						<li>Lo strumento web di visualizzazione dell'utilizzo rete &egrave; disponibile <a href="/mrtg/">qui</a>.</li>
@@ -1669,7 +1668,7 @@ firewall-offline-cmd --add-service=http
 systemctl enable httpd
 
 # Configure Webmin
-# Add "/manage/" location with forced redirect to port 10000 in Apache's configuration
+# Add "/manage/" location with forced redirect to port 10000 in Apache configuration
 cat << EOF > /etc/httpd/conf.d/webmin.conf
 #
 #  Apache-based redirection for Webmin
@@ -1772,7 +1771,49 @@ firewall-offline-cmd --set-log-denied=all
 
 # Note: clock panel applet under GNOME3 takes all settings from system defaults (location, time format, display etc.)
 
-# Conditionally apply custom defaults to screensaver under GNOME3 (don't start on idle, don't lock)
+# Disable user list and reboot/poweroff from GNOME login greeter
+cat << EOF > /etc/dconf/db/gdm.d/01-hvp-settings
+# Custom settings for GNOME login screen
+[org/gnome/login-screen]
+disable-restart-buttons=true
+disable-user-list=true
+EOF
+chmod 644 /etc/dconf/db/gdm.d/01-hvp-settings
+
+# Apply all GNOME3 GDM settings specified above
+rm -f /etc/dconf/db/gdm
+dconf update
+
+# Disable autorun for external media
+# TODO: verify under GNOME 3.14 / CentOS 7.2
+cat << EOF > /etc/dconf/db/local.d/01-autorun-settings
+# Custom settings for GNOME autorun
+[org/gnome/desktop/media-handling]
+autorun-never=true
+EOF
+chmod 644 /etc/dconf/db/local.d/01-autorun-settings
+
+# Disable switch user
+# TODO: verify under GNOME 3.14 / CentOS 7.2
+cat << EOF > /etc/dconf/db/local.d/01-switchuser-settings
+# Custom settings for GNOME user session switching
+[org/gnome/desktop/lockdown]
+disable-user-switching=true
+EOF
+chmod 644 /etc/dconf/db/local.d/01-switchuser-settings
+
+# Note: GNOME3 (or newer CUPS) does not show other user print jobs by default
+# TODO: verify
+
+# Disable online account providers
+cat << EOF > /etc/dconf/db/local.d/01-goa-settings
+# Custom settings for GNOME online account providers
+[org/gnome/online-accounts]
+whitelisted-providers=['']
+EOF
+chmod 644 /etc/dconf/db/local.d/01-goa-settings
+
+# Conditionally apply custom defaults to screensaver under GNOME3 (do not start on idle, do not lock)
 if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
 	cat <<- EOF > /etc/dconf/db/local.d/01-screensaver-settings
 	# Custom settings for GNOME screensaver
@@ -1817,22 +1858,42 @@ if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parall
 	# Disable power management (blanking) on the X server side too
 	cat <<- EOF > /etc/X11/xorg.conf.d/01-dpms.conf
 	Section "ServerFlags"
-		Option "BlankTime" "0"
-		Option "StandbyTime" "0"
-		Option "SuspendTime" "0"
-		Option "OffTime" "0"
+	        Option "BlankTime" "0"
+	        Option "StandbyTime" "0"
+	        Option "SuspendTime" "0"
+	        Option "OffTime" "0"
 	EndSection
 	EOF
 	chmod 644 /etc/X11/xorg.conf.d/01-dpms.conf
+	# Disable power/update actions via PolKit (affects GNOME menus and other ways to perform them)
+	# TODO: verify default rules under /usr/share/polkit-1/actions/
+	cat <<- EOF > /etc/polkit-1/rules.d/60-nousershutdown.rules
+	polkit.addRule(function(action, subject) {
+	  if ((action.id.indexOf("org.freedesktop.login1.hibernate") == 0) ||
+	      (action.id.indexOf("org.freedesktop.login1.power-off") == 0) ||
+	      (action.id.indexOf("org.freedesktop.login1.reboot") == 0)    ||
+	      (action.id.indexOf("org.freedesktop.login1.suspend") == 0)   ||
+	      (action.id.indexOf("org.freedesktop.packagekit.system-update") == 0)          ||
+	      (action.id.indexOf("org.freedesktop.packagekit.trigger-offline-update") == 0) ||
+	      (action.id.indexOf("org.freedesktop.packagekit.upgrade-system") == 0))         {
+	    if (subject.user === "root") {
+	        return polkit.Result.YES;
+	    } else {
+	        return polkit.Result.NO;
+	    }
+	  }
+	});
+	EOF
+	chmod 644 /etc/polkit-1/rules.d/60-nousershutdown.rules
 fi
 
-# Note: filemanager under GNOME3 doesn't use spatial mode by default
+# Note: filemanager under GNOME3 does not use spatial mode by default
 
 # Apply all GNOME3 settings specified above
 rm -f /etc/dconf/db/local
 dconf update
 
-# Disable graphical initial system setup (replacement for old Firstboot)
+# Disable graphical initial system setup
 sed -i -e 's/^\(\[daemon\].*\)$/\1\nInitialSetupEnable=False/' /etc/gdm/custom.conf
 
 # Disable GNOME initial setup
@@ -2060,7 +2121,7 @@ EOF
 chmod 644 /etc/systemd/system/ks1stboot.service
 systemctl enable ks1stboot.service
 
-# TODO: forcibly disable execution of graphical firstboot tool - kickstart directive on top seems to be ignored and moving away anaconda-ks.cfg isn't enough - remove when fixed upstream - see https://bugzilla.redhat.com/show_bug.cgi?id=1213114
+# TODO: forcibly disable execution of graphical firstboot tool - kickstart directive on top seems to be ignored and moving away anaconda-ks.cfg is not enough - remove when fixed upstream - see https://bugzilla.redhat.com/show_bug.cgi?id=1213114
 systemctl mask firstboot-graphical
 systemctl mask initial-setup-graphical
 systemctl mask initial-setup-text
@@ -2137,7 +2198,7 @@ mv /mnt/sysimage/root/kickstart_post.log /mnt/sysimage/root/log
 # Post-installation script (run with bash from chroot after the third post section)
 %post
 # Relabel filesystem
-# This has to be the last post action to catch any files we've created/modified
+# This has to be the last post action to catch any files we have created/modified
 # TODO: verify whether the following is actually needed (latest Anaconda seems to perform a final relabel anyway)
 setfiles -F -e /proc -e /sys -e /dev -e /selinux /etc/selinux/targeted/contexts/files/file_contexts /
 setfiles -F /etc/selinux/targeted/contexts/files/file_contexts.homedirs /home/ /root/
