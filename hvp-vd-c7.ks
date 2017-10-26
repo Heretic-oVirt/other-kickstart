@@ -935,7 +935,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017102501"
+script_version="2017102601"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1242,7 +1242,8 @@ if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Par
 	sed -i -e '/Handle[^=]*=[^i]/s/^#\(Handle[^=]*\)=.*$/\1=ignore/' /etc/systemd/logind.conf
 fi
 
-# Note: no need to further restrict keyboard shutdown on a personal/desktop machine
+# Configure systemd (no shutdown from keyboard)
+systemctl mask ctrl-alt-del.target
 
 # Configure kernel behaviour
 
