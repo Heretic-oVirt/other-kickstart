@@ -327,7 +327,7 @@ else
 		fi
 		ks_dir="$(echo ${ks_path} | sed 's%/[^/]*$%%')"
 	elif echo "${ks_source}" | grep -q '^cdrom:' ; then
-		# Note: cdrom gets accessed as real device name which must be detected - assuming it's the first removable device
+		# Note: cdrom gets accessed as real device name which must be detected - assuming it is the first removable device
 		# Note: hardcoded possible device names for CD/DVD - should cover all reasonable cases
 		# Note: on RHEL>=6 even IDE/ATAPI devices have SCSI device names
 		for dev in /dev/sd[a-z] /dev/sr[0-9]; do
@@ -742,11 +742,12 @@ EOF
 # Create localization setup fragment
 # TODO: allow changing system language too
 if [ "${keyboard_layout}" != "us" ]; then
-	xlayouts="'${keyboard_layout}','us'"
+	# TODO: GNOME3 seems not to respect the keyboard layout preference order (US is always the default) - removing additional layout - restore when fixed upstream
+	#xlayouts="'${keyboard_layout}','us'"
+	xlayouts="'${keyboard_layout}'"
 else
 	xlayouts="'us'"
 fi
-# TODO: GNOME3 seems not to respect the keyboard layout preference order (US is always the default)
 cat << EOF > /tmp/full-localization
 # Default system language, additional languages can be enabled installing the appropriate packages below
 lang en_US.UTF-8
@@ -935,7 +936,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017111101"
+script_version="2017111501"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
