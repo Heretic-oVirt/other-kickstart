@@ -936,7 +936,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017111501"
+script_version="2017111801"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1746,7 +1746,7 @@ ssl_redirect=1
 EOF
 
 # Add firewalld configuration for Webmin
-cat <<- EOF > /etc/firewalld/services/webmin.xml
+cat << EOF > /etc/firewalld/services/webmin.xml
 <?xml version="1.0" encoding="utf-8"?>
 <service>
   <short>webmin</short>
@@ -2015,14 +2015,14 @@ elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
 	# Note: using vmware-hgfsclient (already part of open-vm-tools) for shared folders support
 	shared_folders="\$(vmware-hgfsclient)"
 	if [ -z "\${shared_folders}" ]; then
-		cat << EOM >> /etc/fstab
+		cat <<- EOM >> /etc/fstab
 		# Template line to activate boot-mounted shared folders
 		#.host:/Test	/mnt/hgfs/Test	fuse.vmhgfs-fuse	allow_other,auto_unmount,defaults	0 0
 		EOM
 	else
 		for shared_folder in \${shared_folders} ; do
 			mkdir -p "/mnt/hgfs/\${shared_folder}"
-			cat << EOM >> /etc/fstab
+			cat <<- EOM >> /etc/fstab
 			.host:/\${shared_folder}	/mnt/hgfs/\${shared_folder}	fuse.vmhgfs-fuse	allow_other,auto_unmount,defaults	0 0
 			EOM
 		done
