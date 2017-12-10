@@ -4,8 +4,8 @@
 # Install with commandline (see below for comments):
 # TODO: check each and every custom "hvp_" parameter below for overlap with default dracut/anaconda parameters and convert to using those instead
 # nomodeset elevator=deadline ip=nicname:dhcp inst.ks=https://dangerous.ovirt.life/hvp-repos/el7/ks/hvp-db-c7.ks
-# Note: nicname is the name of the network interface to be used for installation (eg: ens32) - DHCP is assumed available on that network
-# Note: to force custom/predictable nic names add ifname=netN:AA:BB:CC:DD:EE:FF where netN is the desired nic name and AA:BB:CC:DD:EE:FF is the MAC address of the corresponding physical interface
+# Note: nicname is the name of the network interface to be used for installation (eg: ens32) - DHCP is assumed available on that network - the ip=nicname:dhcp option can be omitted if only the right interface has DHCP available (will be autodetected, albeit with a noticeable delay)
+# Note: to force custom/fixed nic names add ifname=netN:AA:BB:CC:DD:EE:FF where netN is the desired nic name and AA:BB:CC:DD:EE:FF is the MAC address of the corresponding network interface
 # Note: alternatively, to force legacy nic names (ethN), add biosdevname=0 net.ifnames=0
 # Note: alternatively burn this kickstart into your DVD image and append to default commandline:
 # elevator=deadline inst.ks=cdrom:/dev/cdrom:/ks/ks.cfg
@@ -46,7 +46,7 @@
 # Note: the default AD further admin user password is HVP_dem0
 # Note: the default keyboard layout is us
 # Note: the default local timezone is UTC
-# Note: to work around a known kernel commandline length limitation, all hvp_* parameters above can be omitted and proper default values (overriding the hardcoded ones) can be placed in Bash-syntax variables-definition files placed alongside the kickstart file - the name of the files retrieved and sourced (in the exact order) is: hvp_parameters.sh hvp_parameters_db.sh hvp_parameters_hh:hh:hh:hh:hh:hh.sh (where hh:hh:hh:hh:hh:hh is the MAC address of the nic used to retrieve the kickstart file, if specified with the ip=nicname:... option)
+# Note: to work around a known kernel commandline length limitation, all hvp_* parameters above can be omitted and proper default values (overriding the hardcoded ones) can be placed in Bash-syntax variables-definition files placed alongside the kickstart file - the name of the files retrieved and sourced (in the exact order) is: hvp_parameters.sh hvp_parameters_db.sh hvp_parameters_hh:hh:hh:hh:hh:hh.sh (where hh:hh:hh:hh:hh:hh is the MAC address of the nic used to retrieve the kickstart file)
 
 # Perform an installation (as opposed to an "upgrade")
 install
@@ -185,6 +185,9 @@ for pathdir in $(echo "${PATH}" | sed -e 's/:/ /'); do
 	fi
 done
 
+# A simple regex matching IP addresses
+IPregex='[0-9]*[.][0-9]*[.][0-9]*[.][0-9]*'
+
 # A general IP add/subtract function to allow classless subnets +/- offsets
 # Note: derived from https://stackoverflow.com/questions/33056385/increment-ip-address-in-a-shell-script
 # TODO: add support for IPv6
@@ -286,13 +289,6 @@ local_timezone="UTC"
 mkdir /tmp/kscfg-pre
 mkdir /tmp/kscfg-pre/mnt
 ks_source="$(cat /proc/cmdline | sed -e 's/^.*\s*inst\.ks=\(\S*\)\s*.*$/\1/')"
-ks_custom_frags="hvp_parameters.sh"
-ks_nic="$(cat /proc/cmdline | sed -e 's/^.*\s*ip=\([^:]*\):.*$/\1/')"
-if [ -f "/sys/class/net/${ks_nic}/address" ]; then
-	ks_custom_frags="${ks_custom_frags} hvp_parameters_db.sh hvp_parameters_$(cat /sys/class/net/${ks_nic}/address).sh"
-else
-	ks_custom_frags="${ks_custom_frags} hvp_parameters_db.sh"
-fi
 if [ -z "${ks_source}" ]; then
 	echo "Unable to determine Kickstart source - skipping configuration fragments retrieval" 1>&2
 else
@@ -346,7 +342,7 @@ else
 		fi
 	elif echo "${ks_source}" | grep -q '^nfs:' ; then
 		# Note: blindly extracting NFS server from Kickstart commandline
-		ks_dev="$(echo ${ks_source} | awk -F: '{print $2}')"
+		ks_host="$(echo ${ks_source} | awk -F: '{print $2}')"
 		ks_fstype="nfs"
 		ks_fsopt="ro,nolock"
 		ks_path="$(echo ${ks_source} | awk -F: '{print $3}')"
@@ -354,11 +350,12 @@ else
 			echo "Unable to determine Kickstart source path" 1>&2
 			ks_dev=""
 		else
-			ks_dev="${ks_dev}:$(echo ${ks_path} | sed 's%/[^/]*$%%')}"
+			ks_dev="${ks_host}:$(echo ${ks_path} | sed 's%/[^/]*$%%')}"
 			ks_dir="/"
 		fi
 	elif echo "${ks_source}" | egrep -q '^(http|https|ftp):' ; then
 		# Note: blindly extracting URL from Kickstart commandline
+		ks_host="$(echo ${ks_source} | sed -e 's%^.*//%%' -e 's%/.*$%%')"
 		ks_dev="$(echo ${ks_source} | sed 's%/[^/]*$%%')"
 		ks_fstype="url"
 	else
@@ -367,6 +364,21 @@ else
 	if [ -z "${ks_dev}" ]; then
 		echo "Unable to extract Kickstart source - skipping configuration fragments retrieval" 1>&2
 	else
+		ks_custom_frags="hvp_parameters.sh hvp_parameters_db.sh"
+		# Note: for network-based kickstart retrieval methods we extract the relevant nic MAC address to get the machine-specific fragment
+		if [ "${ks_fstype}" = "url" -o "${ks_fstype}" = "nfs" ]; then
+			# Note: we detect the nic device name as the one detaining the route towards the host holding the kickstart script
+			# Note: regarding the kickstart host: we assume that if it is not already been given as an IP address then it is a DNS fqdn
+			if ! echo "${ks_host}" | grep -q "${IPregex}" ; then
+				ks_host_ip=$(nslookup "${ks_host}" | tail -n +3 | awk '/^Address/ {print $2}' | head -1)
+			else
+				ks_host_ip="${ks_host}"
+			fi
+			ks_nic=$(ip route get "${ks_host_ip}" | sed -n -e 's/^.*\s\+dev\s\+\(\S\+\)\s\+.*$/\1/p')
+			if [ -f "/sys/class/net/${ks_nic}/address" ]; then
+				ks_custom_frags="${ks_custom_frags} hvp_parameters_$(cat /sys/class/net/${ks_nic}/address).sh"
+			fi
+		fi
 		if [ "${ks_fstype}" = "url" ]; then
 			for custom_frag in ${ks_custom_frags} ; do
 				echo "Attempting network retrieval of ${ks_dev}/${custom_frag}" 1>&2
@@ -387,20 +399,22 @@ fi
 # Load any configuration fragment found, in the proper order
 # Note: configuration-fragment defaults will override hardcoded defaults
 # Note: commandline parameters will override configuration-fragment and hardcoded defaults
-# Note: configuration fragments get executed will full privileges and no further controls beside a bare syntax check: obvious security implications must be taken care of (use HTTPS for network-retrieved kickstart and fragments)
+# Note: configuration fragments get executed with full privileges and no further controls beside a bare syntax check: obvious security implications must be taken care of (use HTTPS for network-retrieved kickstart and fragments)
+pushd /tmp/kscfg-pre
 for custom_frag in ${ks_custom_frags} ; do
-	if [ -f "/tmp/kscfg-pre/${custom_frag}" ]; then
+	if [ -f "${custom_frag}" ]; then
 		# Perform a configuration fragment sanity check before loading
-		bash -n "/tmp/kscfg-pre/${custom_frag}" > /dev/null 2>&1
+		bash -n "${custom_frag}" > /dev/null 2>&1
 		res=$?
 		if [ ${res} -ne 0 ]; then
 			# Report invalid configuration fragment and skip it
 			logger -s -p "local7.err" -t "kickstart-pre" "Skipping invalid remote configuration fragment ${custom_frag}"
 			continue
 		fi
-		source "/tmp/kscfg-pre/${custom_frag}"
+		source "./${custom_frag}"
 	fi
 done
+popd
 
 # TODO: perform better consistency check on all commandline-given parameters
 
@@ -790,6 +804,17 @@ if echo "${given_stage2}" | grep -q '^hd:' ; then
 		#cdrom
 		EOF
 	fi
+else
+	# Note: we assume that a remote stage2 has been copied together with the full media content preserving the default DVD structure
+	# TODO: we assume a HTTP/FTP area - add support for NFS
+	cat <<- EOF > /tmp/full-installsource
+	# Specify a NFS network share as in:
+	# nfs --opts=nolock --server NfsFqdnServerName --dir /path/to/CentOS/base/dir/copied/from/DVD/media
+	# or an HTTP/FTP area as in:
+	url --url ${given_stage2}
+	# alternatively use the inserted optical media as in:
+	#cdrom
+	EOF
 fi
 
 # Prepare NTPdate and Chrony configuration fragments to be appended later on below
@@ -1023,8 +1048,8 @@ popd
 # Copy configuration parameters files (generated in pre section above) into installed system (to be loaded during chrooted post section below)
 for custom_frag in /tmp/kscfg-pre/*.sh ; do
 	if [ -f "${custom_frag}" ]; then
-		mkdir -p /mnt/sysimage/tmp/kscfg-pre
-		cp "${custom_frag}" /mnt/sysimage/tmp/kscfg-pre/
+		mkdir -p /mnt/sysimage/root/etc/kscfg-pre
+		cp "${custom_frag}" /mnt/sysimage/root/etc/kscfg-pre/
 	fi
 done
 
@@ -1035,7 +1060,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017111801"
+script_version="2017120802"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1057,6 +1082,12 @@ hostname ${HOSTNAME}
 # Set the homedir for apps that need it
 export HOME="/root"
 
+# Define associative arrays
+declare -A network netmask network_base mtu
+declare -A domain_name
+declare -A reverse_domain_name
+declare -A test_ip
+
 # Hardcoded defaults
 
 unset nicmacfix
@@ -1067,26 +1098,22 @@ nicmacfix="false"
 dbtype="postgresql"
 
 # Load configuration parameters files (generated in pre section above)
-ks_custom_frags="hvp_parameters.sh"
-ks_nic="$(cat /proc/cmdline | sed -e 's/^.*\s*ip=\([^:]*\):.*$/\1/')"
-if [ -f "/sys/class/net/${ks_nic}/address" ]; then
-	ks_custom_frags="${ks_custom_frags} hvp_parameters_heresiarch.sh hvp_parameters_$(cat /sys/class/net/${ks_nic}/address).sh"
-else
-	ks_custom_frags="${ks_custom_frags} hvp_parameters_heresiarch.sh"
-fi
+ks_custom_frags="hvp_parameters.sh hvp_parameters_db.sh hvp_parameters_*:*.sh"
+pushd /root/etc/kscfg-pre
 for custom_frag in ${ks_custom_frags} ; do
-	if [ -f "/tmp/kscfg-pre/${custom_frag}" ]; then
+	if [ -f "${custom_frag}" ]; then
 		# Perform a configuration fragment sanity check before loading
-		bash -n "/tmp/kscfg-pre/${custom_frag}" > /dev/null 2>&1
+		bash -n "${custom_frag}" > /dev/null 2>&1
 		res=$?
 		if [ ${res} -ne 0 ]; then
 			# Report invalid configuration fragment and skip it
 			logger -s -p "local7.err" -t "kickstart-post" "Skipping invalid remote configuration fragment ${custom_frag}"
 			continue
 		fi
-		source "/tmp/kscfg-pre/${custom_frag}"
+		source "./${custom_frag}"
 	fi
 done
+popd
 
 # Determine choice of nic MAC fixed assignment
 if grep -w -q 'hvp_nicmacfix' /proc/cmdline ; then
@@ -1282,7 +1309,7 @@ elif dmidecode -s system-manufacturer | grep -q "oVirt" ; then
 elif dmidecode -s system-manufacturer | grep -q "Microsoft" ; then
 	yum -y install hyperv-daemons
 elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
-	# Note: VMware basic support installed here (since it's included in base distro now)
+	# Note: VMware basic support installed here (since it is included in base distro now)
 	yum -y install open-vm-tools open-vm-tools-desktop fuse
 fi
 
@@ -2402,9 +2429,11 @@ fi
 
 # TODO: perform NetworkManager workaround configuration on interfaces as detected in pre section above - remove when fixed upstream
 for file in /tmp/hvp-networkmanager-conf/ifcfg-* ; do
-	cfg_file_name=$(basename ${file})
-	sed -i -e '/^DEFROUTE=/d' -e '/^MTU=/d' /mnt/sysimage/etc/sysconfig/network-scripts/${cfg_file_name}
-	cat ${file} >> /mnt/sysimage/etc/sysconfig/network-scripts/${cfg_file_name}
+	if [ -f "${file}" ]; then
+		cfg_file_name=$(basename "${file}")
+		sed -i -e '/^DEFROUTE=/d' -e '/^MTU=/d' "/mnt/sysimage/etc/sysconfig/network-scripts/${cfg_file_name}"
+		cat "${file}" >> "/mnt/sysimage/etc/sysconfig/network-scripts/${cfg_file_name}"
+	fi
 done
 
 # Save exact pre-stage environment
@@ -2414,7 +2443,7 @@ fi
 # Save installation instructions/logs
 # Note: installation logs are now saved under /var/log/anaconda/ by default
 cp /run/install/ks.cfg /mnt/sysimage/root/etc
-for full_frag in /tmp/full-* /tmp/kscfg-pre/*.sh ; do
+for full_frag in /tmp/full-* ; do
 	if [ -f "${full_frag}" ]; then
 		cp "${full_frag}" /mnt/sysimage/root/etc
 	fi
