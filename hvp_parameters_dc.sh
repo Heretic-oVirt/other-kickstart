@@ -36,7 +36,7 @@ domain_join="false"
 sysvolrepl_password="HVP_dem0"
 
 # Note: when creating the first DC, this value will be never used (and will be discarded) after installation
-# Note: when creating further DCs, this value will be used for initial domain join (so it should point to and AD-integrated DNS server)
+# Note: when creating further DCs, this value will be used for initial domain join (so it should point to an AD-integrated DNS server)
 my_nameserver="8.8.8.8"
 
 my_forwarders="8.8.8.8"
