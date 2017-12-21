@@ -1017,7 +1017,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017121003"
+script_version="2017122001"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1243,7 +1243,7 @@ fi
 sed -i -e '/^GRUB_CMDLINE_LINUX/s/quiet/quiet console=tty0 console=ttyS0,115200n8/' /etc/default/grub
 cat << EOF >> /etc/default/grub
 GRUB_TERMINAL="console serial"
-GRUB_SERIAL_COMMAND="serial --speed=9600 --unit=0 --word=8 --parity=no --stop=1"
+GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"
 EOF
 grub2-mkconfig -o "${grub2_cfg_file}"
 
@@ -1311,8 +1311,8 @@ if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parall
 	#
 	# VirtIO block devices settings
 	#
-	ACTION=="add|change", KERNEL=="vd*", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ATTR{queue/nr_requests}="8"
-	ACTION=="add|change", KERNEL=="vd*", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ATTR{bdi/read_ahead_kb}="4096"
+	ACTION=="add|change", KERNEL=="vd*[!0-9]", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ATTR{queue/nr_requests}="8"
+	ACTION=="add|change", KERNEL=="vd*[!0-9]", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ATTR{bdi/read_ahead_kb}="4096"
 	EOF
 	chmod 644 /etc/udev/rules.d/99-virtio-block.rules
 
@@ -1331,8 +1331,8 @@ if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parall
 	chmod 644 /etc/sysctl.d/virtualguest.conf
 fi
 
-# Configure log rotation (keep 2.5 years of logs, compressed)
-sed -i -e 's/^rotate.*$/rotate 130/' -e 's/^#\s*compress.*$/compress/' /etc/logrotate.conf
+# Configure log rotation (keep 6 years of logs, compressed)
+sed -i -e 's/^rotate.*$/rotate 312/' -e 's/^#\s*compress.*$/compress/' /etc/logrotate.conf
 
 # Enable HAVEGEd
 systemctl enable haveged
