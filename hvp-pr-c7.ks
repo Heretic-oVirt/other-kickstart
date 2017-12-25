@@ -1017,7 +1017,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017122001"
+script_version="2017122403"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1091,10 +1091,13 @@ ln -sf $rootdisk /dev/root
 # Add support for CentOS CR repository (to allow up-to-date upgrade later)
 yum-config-manager --enable cr > /dev/null
 
+# Add HVP custom repo
+yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-1.noarch.rpm
+
 # Add upstream repository definitions
-# TODO: use a specific mirror to avoid transient errors - replace when fixed upstream
-#yum -y install http://pkgs.repoforge.org/rpmforge-release/rpmforge-release-0.5.3-1.el7.rf.x86_64.rpm
-yum -y install http://mirror.team-cymru.org/rpmforge/redhat/el7/en/x86_64/rpmforge/RPMS/rpmforge-release-0.5.3-1.el7.rf.x86_64.rpm
+yum -y install http://packages.psychotic.ninja/6/base/i386/RPMS/psychotic-release-1.0.0-1.el6.psychotic.noarch.rpm
+yum-config-manager --save --setopt='psychotic.include=unrar*' > /dev/null
+yum-config-manager --enable psychotic > /dev/null
 yum -y install epel-release
 
 # Add Webmin repo
@@ -1109,19 +1112,16 @@ skip_if_unavailable = 1
 EOF
 chmod 644 /etc/yum.repos.d/webmin.repo
 
-# Add our own repo
-wget -P /etc/yum.repos.d/ https://dangerous.ovirt.life/hvp-repos/el7/HVP.repo
-chmod 644 /etc/yum.repos.d/HVP.repo
-
-# Disable mirrorlists and use baseurls only (better utilization of our proxy cache)
+# Comment out mirrorlist directives and uncomment the baseurl ones to make better use of proxy caches
+# TODO: investigate whether to disable fastestmirror yum plugin too (may interfer in round-robin-DNS-served names?)
 for repofile in /etc/yum.repos.d/*.repo; do
-	if grep -q '^mirrorlist' "${repofile}"; then
+	if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
 		sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+		sed -i -e 's/^metalink/#metalink/g' "${repofile}"
 		sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
 	fi
 done
 # Modify baseurl definitions to allow effective use of our proxy cache
-sed -i -e 's>http://apt\.sw\.be/redhat/el7/en/>http://ftp.fi.muni.cz/pub/linux/repoforge/redhat/el7/en/>g' /etc/yum.repos.d/rpmforge.repo
 sed -i -e 's>http://download.fedoraproject.org/pub/epel/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/7/>g' /etc/yum.repos.d/epel.repo
 sed -i -e 's>http://download.fedoraproject.org/pub/epel/testing/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/testing/7/>g' /etc/yum.repos.d/epel-testing.repo
 
@@ -1147,8 +1147,8 @@ if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Par
 	yum -y install memtest86+
 fi
 
-# Install YUM-cron, YUM-plugin-ps, Gdisk, PWGen, HPing, 7Zip, RAR, UnRAR and ARJ
-yum -y install hping p7zip rar unrar arj pwgen
+# Install YUM-cron, YUM-plugin-ps, Gdisk, PWGen, HPing, 7Zip, UnRAR and ARJ
+yum -y install hping3 p7zip{,-plugins} unrar arj pwgen
 yum -y install yum-cron yum-plugin-ps gdisk
 
 # Install Nmon and Dstat
@@ -1224,7 +1224,7 @@ sed -i -e 's>http://download.fedoraproject.org/pub/epel/testing/7/>http://www.ni
 # Now configure the base OS
 
 # Setup auto-update via yum-cron (ala CentOS4, replacement for yum-updatesd in CentOS5)
-# Note: Updates left to the user/owner manual intervention
+# Note: Updates left to the administrator manual intervention
 sed -i -e 's/^update_messages\s.*$/update_messages = no/' -e 's/^download_updates\s.*$/download_updates = no/' -e 's/^apply_updates\s.*$/apply_updates = no/' -e 's/^emit_via\s.*$/emit_via = None/' /etc/yum/yum-cron*.conf
 systemctl disable yum-cron
 
