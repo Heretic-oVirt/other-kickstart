@@ -1178,7 +1178,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017122403"
+script_version="2017123001"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1324,11 +1324,11 @@ yum -y install webalizer mrtg net-snmp net-snmp-utils
 # Install Webmin
 yum -y install webmin
 
-# Install custom Samba packages with AD DC support from our own repo and related utilities
+# Install custom Samba packages with AD DC support from HVP own repo and related utilities
 yum -y --enablerepo hvp-samba-dc install samba-dc samba-common-tools samba-client samba-winbind-clients rsync krb5-workstation openldap-clients cyrus-sasl-gssapi
 
 # Install Bareos client (file daemon + console)
-# TODO: using our repo to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
+# TODO: using HVP repo to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
 yum -y install bareos-client
 
 # Install virtualization tools support packages
