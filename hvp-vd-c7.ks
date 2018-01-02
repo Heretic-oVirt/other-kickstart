@@ -962,7 +962,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017122403"
+script_version="2017123001"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1159,7 +1159,7 @@ case "${detype}" in
 esac
 
 # Install Bareos client (file daemon + console)
-# TODO: using our repo to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
+# TODO: using HVP repo to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
 yum -y install bareos-client
 
 # Install virtualization tools support packages
