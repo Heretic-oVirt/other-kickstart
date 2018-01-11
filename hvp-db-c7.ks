@@ -1047,10 +1047,10 @@ popd
 %post --nochroot --log /dev/console
 
 # Copy configuration parameters files (generated in pre section above) into installed system (to be loaded during chrooted post section below)
-mkdir -p /mnt/sysimage/root/etc/kscfg-pre
+mkdir -p ${ANA_INSTALL_PATH}/root/etc/kscfg-pre
 for custom_frag in /tmp/kscfg-pre/*.sh ; do
 	if [ -f "${custom_frag}" ]; then
-		cp "${custom_frag}" /mnt/sysimage/root/etc/kscfg-pre/
+		cp "${custom_frag}" ${ANA_INSTALL_PATH}/root/etc/kscfg-pre/
 	fi
 done
 
@@ -1061,7 +1061,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2017123001"
+script_version="2018011101"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -2383,74 +2383,74 @@ systemctl mask initial-setup
 %post --nochroot
 # Append hosts fragment (generated in pre section above) into installed system
 if [ -s /tmp/hvp-bind-zones/hosts ]; then
-	cat /tmp/hvp-bind-zones/hosts >> /mnt/sysimage/etc/hosts
+	cat /tmp/hvp-bind-zones/hosts >> ${ANA_INSTALL_PATH}/etc/hosts
 fi
 
 # Copy NTPdate configuration file (generated in pre section above) into installed system
 if [ -s /tmp/hvp-ntpd-conf/step-tickers ]; then
-	cat /tmp/hvp-ntpd-conf/step-tickers > /mnt/sysimage/etc/ntp/step-tickers
-	chmod 644 /mnt/sysimage/etc/ntp/step-tickers
-	chown root:root /mnt/sysimage/etc/ntp/step-tickers
+	cat /tmp/hvp-ntpd-conf/step-tickers > ${ANA_INSTALL_PATH}/etc/ntp/step-tickers
+	chmod 644 ${ANA_INSTALL_PATH}/etc/ntp/step-tickers
+	chown root:root ${ANA_INSTALL_PATH}/etc/ntp/step-tickers
 fi
 
 # Append Chrony configuration fragment (generated in pre section above) into installed system
 # Note: if we specify additional Chrony configuration, then all default servers get disabled
 if [ -s /tmp/hvp-ntpd-conf/chrony.conf ]; then
-	sed -i -e '/^server\s/s/^/#/g' /mnt/sysimage/etc/chrony.conf
-	cat /tmp/hvp-ntpd-conf/chrony.conf >> /mnt/sysimage/etc/chrony.conf
+	sed -i -e '/^server\s/s/^/#/g' ${ANA_INSTALL_PATH}/etc/chrony.conf
+	cat /tmp/hvp-ntpd-conf/chrony.conf >> ${ANA_INSTALL_PATH}/etc/chrony.conf
 fi
 
 # Copy users setup script (generated in pre section above) into installed system
 if [ -f /tmp/hvp-users-conf/rc.users-setup ]; then
-	cp /tmp/hvp-users-conf/rc.users-setup /mnt/sysimage/etc/rc.d/rc.users-setup
-	chmod 755 /mnt/sysimage/etc/rc.d/rc.users-setup
-	chown root:root /mnt/sysimage/etc/rc.d/rc.users-setup
+	cp /tmp/hvp-users-conf/rc.users-setup ${ANA_INSTALL_PATH}/etc/rc.d/rc.users-setup
+	chmod 755 ${ANA_INSTALL_PATH}/etc/rc.d/rc.users-setup
+	chown root:root ${ANA_INSTALL_PATH}/etc/rc.d/rc.users-setup
 fi
 
 # Copy AD domain joining script (generated in pre section above) into installed system
 if [ -s /tmp/hvp-domain-join/rc.domain-join ]; then
-	cp /tmp/hvp-domain-join/rc.domain-join /mnt/sysimage/etc/rc.d/rc.domain-join
+	cp /tmp/hvp-domain-join/rc.domain-join ${ANA_INSTALL_PATH}/etc/rc.d/rc.domain-join
 	# Note: cleartext passwords contained - must restrict access
-	chmod 700 /mnt/sysimage/etc/rc.d/rc.domain-join
-	chown root:root /mnt/sysimage/etc/rc.d/rc.domain-join
+	chmod 700 ${ANA_INSTALL_PATH}/etc/rc.d/rc.domain-join
+	chown root:root ${ANA_INSTALL_PATH}/etc/rc.d/rc.domain-join
 fi
 
 # Copy database configuration script (generated in pre section above) into installed system
 if [ -s /tmp/hvp-db-conf/rc.db-provision ]; then
-	cp /tmp/hvp-db-conf/rc.db-provision /mnt/sysimage/etc/rc.d/rc.db-provision
+	cp /tmp/hvp-db-conf/rc.db-provision ${ANA_INSTALL_PATH}/etc/rc.d/rc.db-provision
 	# Note: cleartext passwords contained - must restrict access
-	chmod 700 /mnt/sysimage/etc/rc.d/rc.db-provision
-	chown root:root /mnt/sysimage/etc/rc.d/rc.db-provision
+	chmod 700 ${ANA_INSTALL_PATH}/etc/rc.d/rc.db-provision
+	chown root:root ${ANA_INSTALL_PATH}/etc/rc.d/rc.db-provision
 fi
 
 # Copy TCP wrappers configuration (generated in pre section above) into installed system
 if [ -f /tmp/hvp-tcp_wrappers-conf/hosts.allow ]; then
-	cat /tmp/hvp-tcp_wrappers-conf/hosts.allow >> /mnt/sysimage/etc/hosts.allow
+	cat /tmp/hvp-tcp_wrappers-conf/hosts.allow >> ${ANA_INSTALL_PATH}/etc/hosts.allow
 fi
 
 # TODO: perform NetworkManager workaround configuration on interfaces as detected in pre section above - remove when fixed upstream
 for file in /tmp/hvp-networkmanager-conf/ifcfg-* ; do
 	if [ -f "${file}" ]; then
 		cfg_file_name=$(basename "${file}")
-		sed -i -e '/^DEFROUTE=/d' -e '/^MTU=/d' "/mnt/sysimage/etc/sysconfig/network-scripts/${cfg_file_name}"
-		cat "${file}" >> "/mnt/sysimage/etc/sysconfig/network-scripts/${cfg_file_name}"
+		sed -i -e '/^DEFROUTE=/d' -e '/^MTU=/d' "${ANA_INSTALL_PATH}/etc/sysconfig/network-scripts/${cfg_file_name}"
+		cat "${file}" >> "${ANA_INSTALL_PATH}/etc/sysconfig/network-scripts/${cfg_file_name}"
 	fi
 done
 
 # Save exact pre-stage environment
 if [ -f /tmp/pre.out ]; then
-	cp /tmp/pre.out /mnt/sysimage/root/log/pre.out
+	cp /tmp/pre.out ${ANA_INSTALL_PATH}/root/log/pre.out
 fi
 # Save installation instructions/logs
 # Note: installation logs are now saved under /var/log/anaconda/ by default
-cp /run/install/ks.cfg /mnt/sysimage/root/etc
+cp /run/install/ks.cfg ${ANA_INSTALL_PATH}/root/etc
 for full_frag in /tmp/full-* ; do
 	if [ -f "${full_frag}" ]; then
-		cp "${full_frag}" /mnt/sysimage/root/etc
+		cp "${full_frag}" ${ANA_INSTALL_PATH}/root/etc
 	fi
 done
-cp /tmp/kickstart_pre.log /mnt/sysimage/root/log
-mv /mnt/sysimage/root/kickstart_post.log /mnt/sysimage/root/log
+cp /tmp/kickstart_pre.log ${ANA_INSTALL_PATH}/root/log
+mv ${ANA_INSTALL_PATH}/root/kickstart_post.log ${ANA_INSTALL_PATH}/root/log
 %end
 
 # Post-installation script (run with bash from chroot after the third post section)
