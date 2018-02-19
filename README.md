@@ -18,6 +18,8 @@ hvp-msg-c7.ks - kickstart file for a CentOS7 messaging/groupware (TBD) machine
 
 hvp-fw-c7.ks - kickstart file for a CentOS7 firewall/proxy/VPN (firewalld/Squid/Strongswan) machine
 
+hvp-sat-c7.ks - kickstart file for a CentOS7 management/orchestration/provisioning (Foreman) machine
+
 hvp-vd-win10.xml - autounattend file for a Windows10 virtual desktop machine
 
 Each kickstart file has a corresponding sample hvp_parameters_&ast;.sh configuration parameters file (consisting of comments and variable definitions in GNU/Bash syntax) to overcome Linux kernel commandline length limitations.
