@@ -8,7 +8,7 @@ hvp-db-c7.ks - kickstart file for a CentOS7 database (either PostgreSQL, MySQL, 
 
 hvp-pr-c7.ks - kickstart file for a CentOS7 printer server (Samba) machine
 
-hvp-vd-c7.ks - kickstart file for a CentOS7 virtual desktop machine
+hvp-vd-c7.ks - kickstart file for a CentOS7 remote desktop server (X2Go with either GNOME, KDE, Xfce or LXDE) machine
 
 Future planned kickstart files (all further virtual machines should be joined to the AD domain created above):
 
