@@ -975,7 +975,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018022301"
+script_version="2018030702"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1182,7 +1182,7 @@ case "${detype}" in
 		yum -y install @kde-desktop @kde-apps @kde-media kdenetwork-krdc
 		;;
 	xfce)
-		# Install XFCE packages
+		# Install Xfce packages
 		yum -y install @xfce
 		;;
 	lxde)
