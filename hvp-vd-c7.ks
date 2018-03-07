@@ -1,4 +1,4 @@
-# Kickstart file for virtual desktop server
+# Kickstart file for remote desktop server
 # Note: minimum amount of RAM successfully tested for installation: 2048 MiB from network - 1024 MiB from local media
 
 # Install with commandline (see below for comments):
@@ -795,16 +795,29 @@ reqpart --add-boot
 part swap --fstype swap --hibernation --ondisk=${device_name} --asprimary
 part / --fstype xfs --size=100 --grow --ondisk=${device_name} --asprimary
 EOF
-# Clean up disks from any previous software-RAID (Linux or BIOS based)
+# Clean up disks from any previous LVM setup
+# Note: it seems that simply zeroing out below is not enough
+vgscan -v
+for vg_name in $(vgs --noheadings -o vg_name); do
+	vgremove -v -y "${vg_name}"
+	udevadm settle --timeout=5
+done
+for pv_name in $(pvs --noheadings -o pv_name); do
+	pvremove -v -ff -y "${pv_name}"
+	udevadm settle --timeout=5
+done
+# Clean up disks from any previous software-RAID (Linux or BIOS based) setup
 # TODO: this does not work on CentOS7 (it would need some sort of late disk-status refresh induced inside anaconda) - workaround by manually zeroing-out the first 10 MiBs from a rescue boot before starting the install process (or simply restarting when installation stops/hangs at storage setup)
 # Note: skipping this on a virtual machine to avoid inflating a thin-provisioned virtual disk
 # Note: dmidecode command may no longer be available in pre environment
 if cat /sys/class/dmi/id/sys_vendor | egrep -q -v "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
-	# Note: resetting all disk devices since leftover LVM configurations may interfer with installation and/or setup later on
+	# Note: resetting all disk devices since leftover configurations may interfer with installation and/or setup later on
 	for current_device in ${all_devices}; do
 		dd if=/dev/zero of=/dev/${current_device} bs=1M count=10
 		dd if=/dev/zero of=/dev/${current_device} bs=1M count=10 seek=$(($(blockdev --getsize64 /dev/${current_device}) / (1024 * 1024) - 10))
 	done
+	partprobe
+	udevadm settle --timeout=5
 fi
 
 # Create install source selection fragment
