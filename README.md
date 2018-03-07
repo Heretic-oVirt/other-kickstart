@@ -28,4 +28,4 @@ Currently there is a rude organization of automation strategies for these additi
 
 Inside kickstart files, important points are in comments beginning with "# Note: " while current bugs/workarounds/missing_features are in comments beginning with "# TODO: "
 
-Please note that all kickstarts are independent of the actual virtualization technology used: the corresponding vms can be instantiated on any kind of infrastrucuture (KVM, Xen, VMware, Hyper-V and Parallels are explicitly supported) and the configuration parameter files can be independently created and made available.
+Please note that all kickstarts are independent of the actual virtualization technology used (or even bare-metal physical deployment): the corresponding vms can be instantiated on any kind of infrastructure (KVM, Xen, VMware, Hyper-V and Parallels are explicitly supported) and the configuration parameter files can be independently created and made available.
