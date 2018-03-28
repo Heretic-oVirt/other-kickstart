@@ -503,6 +503,25 @@ given_dbversion=$(sed -n -e 's/^.*hvp_dbversion=\(\S*\).*$/\1/p' /proc/cmdline)
 if [ -n "${given_dbversion}" ]; then
 	dbversion="${given_dbversion}"
 fi
+if [ -z "${dbversion}" -o "${dbtype}" != "postgresql" -a "${dbversion}" = "9.6" ]; then
+	case "${dbtype}" in
+		postgresql)
+			dbversion="9.6"
+			;;
+		mysql)
+			dbversion="5.7"
+			;;
+		firebird)
+			dbversion="2.5"
+			;;
+		mongodb)
+			dbversion="3.6"
+			;;
+		sqlserver)
+			dbversion="2017.CU"
+			;;
+	esac
+fi
 
 # Determine nameserver address
 given_nameserver=$(sed -n -e "s/^.*hvp_nameserver=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
@@ -1057,9 +1076,11 @@ case "${dbtype}" in
 		# Note: 3.25 GiB RAM are absolutely required
 		# TODO: verify editions/licensing, language/collation and paths
 		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD='${root_password}' /opt/mssql/bin/mssql-conf -n setup
+		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD='${root_password}' /opt/mssql/bin/mssql-conf -n set sqlagent.enabled true
 
 		# Initialize SQLServer Integration Services
-		ACCEPT_EULA=Y /opt/ssis/bin/ssis-conf -n setup
+		# TODO: verify editions/licensing
+		SSIS_PID=Developer ACCEPT_EULA=Y /opt/ssis/bin/ssis-conf -n setup
 
 		# Enable and start SQLServer
 		systemctl --now enable mssql-server
@@ -1091,7 +1112,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018032801"
+script_version="2018032802"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1185,6 +1206,25 @@ esac
 given_dbversion=$(sed -n -e 's/^.*hvp_dbversion=\(\S*\).*$/\1/p' /proc/cmdline)
 if [ -n "${given_dbversion}" ]; then
 	dbversion="${given_dbversion}"
+fi
+if [ -z "${dbversion}" -o "${dbtype}" != "postgresql" -a "${dbversion}" = "9.6" ]; then
+	case "${dbtype}" in
+		postgresql)
+			dbversion="9.6"
+			;;
+		mysql)
+			dbversion="5.7"
+			;;
+		firebird)
+			dbversion="2.5"
+			;;
+		mongodb)
+			dbversion="3.6"
+			;;
+		sqlserver)
+			dbversion="2017.CU"
+			;;
+	esac
 fi
 
 # Create /dev/root symlink for grubby (must differentiate for use of LVM or MD based "/")
@@ -1325,9 +1365,10 @@ case "${dbtype}" in
 	firebird)
 		# Install Firebird
 		# Note: Firebird EPEL version is 2.5.x
+		# TODO: allow selecting a different version (3.x)
 		yum -y install firebird
 
-		# TODO: create rpm package for firebirdwebadmin from https://github.com/mariuz/firebirdwebadmin and install together with php-interbase
+		# TODO: create an rpm package for firebirdwebadmin from https://github.com/mariuz/firebirdwebadmin and install together with php-interbase
 		;;
 	mongodb)
 		# Add MongoDB repository
@@ -1348,8 +1389,11 @@ case "${dbtype}" in
 		# TODO: find or create an rpm package for a suitable MongoDB web administration frontend and install it here
 		;;
 	sqlserver)
+		# Determine desired version
+		repoversion=$(echo "${dbversion}" | sed -e 's/\./-/g' -e 's/^\(.*\)$/\L\1/g' -e 's/-cu//g')
+
 		# Add Microsoft repositories
-		wget -O /etc/yum.repos.d/mssql-server.repo https://packages.microsoft.com/config/rhel/7/mssql-server.repo
+		wget -O /etc/yum.repos.d/mssql-server.repo https://packages.microsoft.com/config/rhel/7/mssql-server-${repoversion}.repo
 		chmod 644 /etc/yum.repos.d/mssql-server.repo
 		chown root:root /etc/yum.repos.d/mssql-server.repo
 		wget -O /etc/yum.repos.d/msprod.repo https://packages.microsoft.com/config/rhel/7/prod.repo
@@ -1366,6 +1410,7 @@ case "${dbtype}" in
 		yum -y install mssql-tools
 
 		# Install SQLServer Agent
+		# Note: SQLServer Agent is included in base package for versions >= CU4
 		yum -y install mssql-server-agent
 
 		# Install SQLServer Full-Text Search
