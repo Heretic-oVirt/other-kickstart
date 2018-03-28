@@ -4,6 +4,7 @@
 nicmacfix="false"
 
 dbtype="postgresql"
+dbversion="9.6"
 
 # Note: for the following values, either the IPs or the offset is enough, but we will list here both as an example
 test_ip_offset="1"
