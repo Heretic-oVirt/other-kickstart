@@ -3,6 +3,7 @@
 
 nicmacfix="false"
 
+# Note: if you change DB type but leave DB version untouched, it will be reset to the default for the chosen DB type
 dbtype="postgresql"
 dbversion="9.6"
 
