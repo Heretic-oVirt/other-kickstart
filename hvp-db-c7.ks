@@ -18,7 +18,8 @@
 # Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
 # Note: to force custom AD subdomain naming add hvp_ad_subdomainname=myprefix where myprefix is the subdomain name
 # Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an AD domain) or "false" (do not join an AD domain)
-# Note: to force custom database type add hvp_dbtype=dddd where dddd is the database type (either postgresql, mysql, firebird or sqlserver)
+# Note: to force custom database type add hvp_dbtype=dddd where dddd is the database type (either postgresql, mysql, firebird, mongodb or sqlserver)
+# Note: to force custom database version add hvp_dbversion=a.b where a.b is the database version number
 # Note: to force custom nameserver IP add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
 # Note: to force custom root password add hvp_rootpwd=mysecret where mysecret is the root user password
@@ -37,6 +38,7 @@
 # Note: the default AD subdomain name is assumed to be ad
 # Note: the default domain action is "false" (do not join an AD domain)
 # Note: the default database type is postgresql
+# Note: the default database version is 9.6 (postgresql), 5.7 (mysql), 2.5 (firebird), 3.6 (mongodb) and 2017.CU (sqlserver)
 # Note: the default nameserver IP is assumed to be 8.8.8.8
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
 # Note: the default root user password is HVP_dem0
@@ -218,6 +220,7 @@ unset domain_name
 unset ad_subdomain_prefix
 unset domain_join
 unset dbtype
+unset dbversion
 unset reverse_domain_name
 unset test_ip
 unset test_ip_offset
@@ -238,6 +241,7 @@ unset local_timezone
 nicmacfix="false"
 
 dbtype="postgresql"
+dbversion="9.6"
 
 # Note: IP offsets below get used to automatically derive IP addresses
 # Note: no need to allow offset overriding from commandline if the IP address itself can be specified
@@ -489,10 +493,16 @@ fi
 # Determine database type
 given_dbtype=$(sed -n -e 's/^.*hvp_dbtype=\(\S*\).*$/\1/p' /proc/cmdline)
 case "${given_dbtype}" in
-	postgresql|mysql|firebird|sqlserver)
+	postgresql|mysql|firebird|mongodb|sqlserver)
 		dbtype="${given_dbtype}"
 		;;
 esac
+
+# Determine database version
+given_dbversion=$(sed -n -e 's/^.*hvp_dbversion=\(\S*\).*$/\1/p' /proc/cmdline)
+if [ -n "${given_dbversion}" ]; then
+	dbversion="${given_dbversion}"
+fi
 
 # Determine nameserver address
 given_nameserver=$(sed -n -e "s/^.*hvp_nameserver=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
@@ -927,20 +937,23 @@ cat << EOF > rc.db-provision
 #!/bin/bash
 case "${dbtype}" in
 	postgresql)
+		# Derive repository version to use
+		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
+
 		# Initialize PostgreSQL
-		/usr/pgsql-9.6/bin/postgresql96-setup initdb
+		/usr/pgsql-${dbversion}/bin/postgresql${repoversion}-setup initdb
 
 		# Enable and start PostgreSQL
-		systemctl --now enable postgresql-9.6
+		systemctl --now enable postgresql-${dbversion}
 
 		# Change system/DB password for PostgreSQL admin user
 		echo '${root_password}' | passwd --stdin postgres
 		su - postgres -c "psql -d template1 -c \\"ALTER USER postgres WITH PASSWORD '${root_password}';\\""
 
 		# Enable password authentication
-		sed -i -e '/^host\s*/s/ident/md5/g' -e '/^local\s*/s/peer/md5/g' /var/lib/pgsql/9.6/data/pg_hba.conf
+		sed -i -e '/^host\s*/s/ident/md5/g' -e '/^local\s*/s/peer/md5/g' /var/lib/pgsql/${dbversion}/data/pg_hba.conf
 		# Restart PostgreSQL to apply configuration changes
-		systemctl restart postgresql-9.6
+		systemctl restart postgresql-${dbversion}
 
 		# Configure phpPgAdmin (allow only through HTTPS; allow from localhost and our networks only)
 		# TODO: verify with newer conditional (Apache 2.2/2.4) and IPv6-too configuration
@@ -1035,6 +1048,10 @@ case "${dbtype}" in
 		# No initialization needed for Firebird
 		true
 		;;
+	mongodb)
+		# No initialization needed for MongoDB
+		true
+		;;
 	sqlserver)
 		# Initialize SQLServer
 		# Note: 3.25 GiB RAM are absolutely required
@@ -1074,7 +1091,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018030701"
+script_version="2018032801"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1126,10 +1143,12 @@ declare -A test_ip
 
 unset nicmacfix
 unset dbtype
+unset dbversion
 
 nicmacfix="false"
 
 dbtype="postgresql"
+dbversion="9.6"
 
 # Load configuration parameters files (generated in pre section above)
 ks_custom_frags="hvp_parameters.sh hvp_parameters_db.sh hvp_parameters_*:*.sh"
@@ -1157,10 +1176,16 @@ fi
 # Determine database type
 given_dbtype=$(sed -n -e 's/^.*hvp_dbtype=\(\S*\).*$/\1/p' /proc/cmdline)
 case "${given_dbtype}" in
-	postgresql|mysql|firebird|sqlserver)
+	postgresql|mysql|firebird|mongodb|sqlserver)
 		dbtype="${given_dbtype}"
 		;;
 esac
+
+# Determine database version
+given_dbversion=$(sed -n -e 's/^.*hvp_dbversion=\(\S*\).*$/\1/p' /proc/cmdline)
+if [ -n "${given_dbversion}" ]; then
+	dbversion="${given_dbversion}"
+fi
 
 # Create /dev/root symlink for grubby (must differentiate for use of LVM or MD based "/")
 # TODO: Open a Bugzilla notification
@@ -1257,11 +1282,18 @@ yum -y install sssd-ad realmd adcli krb5-workstation samba-common
 # Install database packages
 case "${dbtype}" in
 	postgresql)
+		# Derive repository version to use
+		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
+
 		# Add PostgreSQL upstream repository
-		yum -y install https://download.postgresql.org/pub/repos/yum/9.6/redhat/rhel-7-x86_64/pgdg-redhat96-9.6-3.noarch.rpm
+		# Note: using the lowest package release possible in order to support different versions - updating anyway immediately after
+		yum -y install https://download.postgresql.org/pub/repos/yum/${dbversion}/redhat/rhel-7-x86_64/pgdg-redhat${repoversion}-${dbversion}-1.noarch.rpm
+		yum -y upgrade
+		find /etc -type f -name '*.rpmnew' -exec rename .rpmnew "" '{}' ';'
+		find /etc -type f -name '*.rpmsave' -exec rm -f '{}' ';'
 
 		# Install upstream PostgreSQL (newer) instead of the standard (CentOS-provided) one
-		yum -y install postgresql96 postgresql96-server
+		yum -y install postgresql${repoversion} postgresql${repoversion}-server
 
 		# Install Barman
 		yum -y install barman barman-cli
@@ -1270,14 +1302,18 @@ case "${dbtype}" in
 		yum -y install phpPgAdmin pg_view pg_top pgcenter pgtune
 		;;
 	mysql)
+		# Derive repository version to use
+		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
+
 		# Add Percona repository
 		yum -y install https://www.percona.com/downloads/percona-release/redhat/0.1-4/percona-release-0.1-4.noarch.rpm
 
 		# Install Percona custom version of MySQL (newer/tweaked) instead of the standard (CentOS-provided) one
 		# Note: this should bring in Percona compat client libraries for MySQL 5.1.x
-		yum -y install Percona-Server-client-57 Percona-Server-server-57
+		yum -y install Percona-Server-client-${repoversion} Percona-Server-server-${repoversion}
 
 		# Install Percona XTRABackup
+		# TODO: find a way to allow specifying XTRABackup version too
 		yum -y install percona-xtrabackup-24
 
 		# Install Percona Toolkit
@@ -1292,6 +1328,24 @@ case "${dbtype}" in
 		yum -y install firebird
 
 		# TODO: create rpm package for firebirdwebadmin from https://github.com/mariuz/firebirdwebadmin and install together with php-interbase
+		;;
+	mongodb)
+		# Add MongoDB repository
+		cat <<- EOF > /etc/yum.repos.d/mongodb-org-${dbversion}.repo
+		[mongodb-org-${dbversion}]
+		name=MongoDB Repository
+		baseurl=https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/${dbversion}/\$basearch/
+		gpgcheck=1
+		enabled=1
+		gpgkey=https://www.mongodb.org/static/pgp/server-${dbversion}.asc
+		EOF
+		chmod 644 /etc/yum.repos.d/mongodb-org-${dbversion}.repo
+
+		# Install MongoDB
+		# Note: this brings in the server, shell and tools packages
+		yum -y install mongodb-org
+
+		# TODO: find or create an rpm package for a suitable MongoDB web administration frontend and install it here
 		;;
 	sqlserver)
 		# Add Microsoft repositories
@@ -1481,7 +1535,7 @@ if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parall
 	vm.dirty_expire_centisecs = 500
 	vm.dirty_writeback_centisecs = 100
 	vm.swappiness = 30
-	kernel.sched_migration_cost = 5000000
+	kernel.sched_migration_cost_ns = 5000000
 	EOF
 	chmod 644 /etc/sysctl.d/virtualguest.conf
 fi
@@ -1963,7 +2017,7 @@ fi
 systemctl disable bareos-fd
 
 # Configure database
-# Note: initial database provisioning preformed by script created in pre section above and copied in third post section below
+# Note: initial database provisioning performed by script created in pre section above and copied in third post section below
 case "${dbtype}" in
 	postgresql)
 		# Configure firewall
@@ -1973,7 +2027,7 @@ case "${dbtype}" in
 
 		# Disable PostgreSQL
 		# Note: it needs manual initialization before starting
-		systemctl disable postgresql-9.6
+		systemctl disable postgresql-${dbversion}
 
 		# Enable access through phpPgAdmin
 		# Note: further phpPgAdmin access control configuration performed in rc.db-provision script
@@ -2144,6 +2198,34 @@ case "${dbtype}" in
 
 		# Enable Firebird
 		systemctl enable firebird-superserver
+		;;
+	mongodb)
+		# Configure firewall
+		cat <<- EOF > /etc/firewalld/services/mongodb.xml
+		<?xml version="1.0" encoding="utf-8"?>
+		<service>
+		  <short>mongodb</short>
+		  <description>MongoDB database server.</description>
+		  <port protocol="tcp" port="27017"/>
+		</service>
+		EOF
+		chmod 644 /etc/firewalld/services/mongodb.xml
+		firewall-offline-cmd --add-service=mongodb
+
+		# Customize MongoDB configuration
+
+		# Make sure that MongoDB listens on all interfaces
+		sed -i -e 's/^\(\s*\)\(bindIp:.*\)$/#\1\2\n\1bindIpAll: true/g' /etc/mongod.conf
+
+		# Allow MongoDB to listen on its port by means of proper SELinux configuration
+		semanage port -a -t mongod_port_t -p tcp 27017
+
+		# Disable transparent hugepages
+		sed -i -e '/^GRUB_CMDLINE_LINUX/s/\stransparent_hugepage=[^[:space:]"]*//' -e '/^GRUB_CMDLINE_LINUX/s/"$/ transparent_hugepage=never"/' /etc/default/grub
+		grub2-mkconfig -o "${grub2_cfg_file}"
+
+		# Enable MongoDB
+		systemctl enable mongod
 		;;
 	sqlserver)
 		# Configure firewall
