@@ -4,7 +4,7 @@ This repository contains further kickstart files for virtual guests used in the 
 
 hvp-dc-c7.ks -  kickstart file for a CentOS7 Samba AD DC machine (install this virtual machine *first*)
 
-hvp-db-c7.ks - kickstart file for a CentOS7 database (either PostgreSQL, MySQL, Firebird or SQLServer) machine
+hvp-db-c7.ks - kickstart file for a CentOS7 database (either PostgreSQL, MySQL, Firebird, MongoDB or SQLServer) machine
 
 hvp-pr-c7.ks - kickstart file for a CentOS7 printer server (Samba) machine
 
