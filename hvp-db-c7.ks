@@ -16,6 +16,7 @@
 # Note: to force custom IPs add hvp_{mgmt,lan}_my_ip=t.t.t.t where t.t.t.t is the chosen IP on the given network
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
 # Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
+# Note: to force custom multi-instance limit for each vm type (kickstart) add hvp_maxinstances=A where A is the maximum number of instances
 # Note: to force custom AD subdomain naming add hvp_ad_subdomainname=myprefix where myprefix is the subdomain name
 # Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an AD domain) or "false" (do not join an AD domain)
 # Note: to force custom database type add hvp_dbtype=dddd where dddd is the database type (either postgresql, mysql, firebird, mongodb or sqlserver)
@@ -25,6 +26,7 @@
 # Note: to force custom root password add hvp_rootpwd=mysecret where mysecret is the root user password
 # Note: to force custom admin username add hvp_adminname=myadmin where myadmin is the admin username
 # Note: to force custom admin password add hvp_adminpwd=myothersecret where myothersecret is the admin user password
+# Note: to force custom email address for notification receiver add hvp_receiver_email=name@domain where name@domain is the email address
 # Note: to force custom AD further admin username add hvp_winadminname=mywinadmin where mywinadmin is the further AD admin username
 # Note: to force custom AD further admin password add hvp_winadminpwd=mywinothersecret where mywinothersecret is the further AD admin user password
 # Note: to force custom keyboard layout add hvp_kblayout=cc where cc is the country code
@@ -35,6 +37,7 @@
 # Note: the default MTU is assumed to be 1500 on {mgmt,lan}
 # Note: the default machine IPs are assumed to be the 230th IPs available (network address + 230) on each connected network
 # Note: the default domain names are assumed to be {mgmt,lan}.private
+# Note: the default multi-instance limit is assumed to be 9
 # Note: the default AD subdomain name is assumed to be ad
 # Note: the default domain action is "false" (do not join an AD domain)
 # Note: the default database type is postgresql
@@ -44,6 +47,7 @@
 # Note: the default root user password is HVP_dem0
 # Note: the default admin username is hvpadmin
 # Note: the default admin user password is HVP_dem0
+# Note: the default notification email address for receiver is monitoring@localhost
 # Note: the default AD further admin username is the same as the admin username with the string "ad" prefixed
 # Note: the default AD further admin user password is HVP_dem0
 # Note: the default keyboard layout is us
@@ -225,12 +229,14 @@ unset reverse_domain_name
 unset test_ip
 unset test_ip_offset
 unset my_ip_offset
+unset multi_instance_max
 unset my_name
 unset my_nameserver
 unset my_gateway
 unset root_password
 unset admin_username
 unset admin_password
+unset notification_receiver
 unset winadmin_username
 unset winadmin_password
 unset keyboard_layout
@@ -251,6 +257,8 @@ test_ip_offset="1"
 
 my_ip_offset="230"
 
+multi_instance_max="9"
+
 declare -A network netmask network_base mtu
 network['mgmt']="172.20.10.0"
 netmask['mgmt']="255.255.255.0"
@@ -260,10 +268,15 @@ network['lan']="172.20.12.0"
 netmask['lan']="255.255.255.0"
 network_base['lan']="172.20.12"
 mtu['lan']="1500"
+network['internal']="172.20.13.0"
+netmask['internal']="255.255.255.0"
+network_base['internal']="172.20.13"
+mtu['internal']="1500"
 
 declare -A domain_name
 domain_name['mgmt']="mgmt.private"
 domain_name['lan']="lan.private"
+domain_name['internal']="internal.private"
 
 ad_subdomain_prefix="ad"
 
@@ -272,6 +285,7 @@ domain_join="false"
 declare -A reverse_domain_name
 reverse_domain_name['mgmt']="10.20.172.in-addr.arpa"
 reverse_domain_name['lan']="12.20.172.in-addr.arpa"
+reverse_domain_name['internal']="13.20.172.in-addr.arpa"
 
 declare -A test_ip
 # Note: default values for test_ip derived below - defined here to allow loading as configuration parameters
@@ -287,6 +301,8 @@ admin_password="HVP_dem0"
 winadmin_password="HVP_dem0"
 keyboard_layout="us"
 local_timezone="UTC"
+
+notification_receiver="monitoring@localhost"
 
 # Detect any configuration fragments and load them into the pre environment
 # Note: BIOS based devices, file and DHCP methods are unsupported
@@ -460,6 +476,12 @@ if [ -n "${given_winadmin_password}" ]; then
 	winadmin_password="${given_winadmin_password}"
 fi
 
+# Determine notification receiver email address
+given_receiver_email=$(sed -n -e "s/^.*hvp_receiver_email=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_receiver_email}" ]; then
+	notification_receiver="${given_receiver_email}"
+fi
+
 # Determine keyboard layout
 given_keyboard_layout=$(sed -n -e "s/^.*hvp_kblayout=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_keyboard_layout}" ]; then
@@ -476,6 +498,12 @@ fi
 given_hostname=$(sed -n -e 's/^.*hvp_myname=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_hostname}" | grep -q '^[[:alnum:]]\+$' ; then
 	my_name="${given_hostname}"
+fi
+
+# Determine multi-instance limit
+given_multi_instance_max=$(sed -n -e 's/^.*hvp_maxinstances=\(\S*\).*$/\1/p' /proc/cmdline)
+if echo "${given_multi_instance_max}" | grep -q '^[[:digit:]]\+$' ; then
+	multi_instance_max="${given_multi_instance_max}"
 fi
 
 # Determine AD subdomain name
@@ -596,13 +624,15 @@ fi
 # Disable any interface configured by NetworkManager
 # Note: NetworkManager may interfer with interface assignment autodetection logic below
 # Note: interfaces will be explicitly activated again by our dynamically created network configuration fragment
-for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|lo|sit[0-9])$' | sort); do
-	if nmcli device show "${nic_name}" | grep -q '^GENERAL.STATE:.*(connected)' ; then
-		nmcli device disconnect "${nic_name}"
-		nmcli connection delete "${nic_name}"
-		ip addr flush dev "${nic_name}"
-		ip link set mtu 1500 dev "${nic_name}"
+for device_name in $(nmcli -t device show | awk -F: '/^GENERAL\.DEVICE:/ {print $2}' | egrep -v '^(bonding_masters|lo|sit[0-9])$' | sort); do
+	if nmcli -t device show "${device_name}" | grep -q '^GENERAL\.STATE:.*(connected)' ; then
+		nmcli device disconnect "${device_name}"
+		ip addr flush dev "${device_name}"
+		ip link set mtu 1500 dev "${device_name}"
 	fi
+done
+for connection_name in $(nmcli -t connection show | awk -F: '{print $1}' | sort); do
+	nmcli connection delete "${connection_name}"
 done
 
 # Determine network interface assignment
@@ -626,9 +656,24 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			fi
 			unset PREFIX
 			eval $(ipcalc -s -p "${network[${zone}]}" "${netmask[${zone}]}")
-			ip addr add "${my_ip[${zone}]}/${PREFIX}" dev "${nic_name}"
+			# Perform duplicate IP detection and increment IP till it is unique
+			tentative_ip_found="false"
+			for ((ip_increment=0;ip_increment<=${multi_instance_max};ip_increment=ip_increment+1)); do
+				tentative_ip=$(ipmat ${my_ip[${zone}]} ${ip_increment} +)
+				if arping -q -c 2 -w 3 -D -I ${nic_name} ${tentative_ip} ; then
+					# No collision detected: try to use this IP address
+					tentative_ip_found="true"
+					break
+				fi
+			done
+			if [ "${tentative_ip_found}" = "false" ]; then
+				# All IP addresses already taken - skip
+				continue
+			fi
+			ip addr add "${tentative_ip}/${PREFIX}" dev "${nic_name}"
 			res=$?
 			if [ ${res} -ne 0 ] ; then
+				# There has been a problem in assigning the IP address - skip
 				ip addr flush dev "${nic_name}"
 				ip link set mtu 1500 dev "${nic_name}"
 				continue
@@ -639,6 +684,11 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			if ping -c 3 -w 8 -i 2 "${test_ip[${zone}]}" > /dev/null 2>&1 ; then
 				nics["${zone}"]="${nics[${zone}]} ${nic_name}"
 				nic_assigned='true'
+				# Note: we keep IP addresses aligned on all zones
+				# Note: IP/name coherence check and correction demanded to post-install rc.ks1stboot script
+				for zone_to_align in "${!network[@]}" ; do
+					my_ip[${zone_to_align}]=$(ipmat ${my_ip[${zone_to_align}]} ${ip_increment} +)
+				done
 				ip addr flush dev "${nic_name}"
 				ip link set mtu 1500 dev "${nic_name}"
 				break
@@ -647,16 +697,14 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			ip link set mtu 1500 dev "${nic_name}"
 		done
 		if [ "${nic_assigned}" = "false" ]; then
+			# Disable unassignable nics
 			nics['unused']="${nics['unused']} ${nic_name}"
 		fi
 	else
+		# Disable unconnected nics
 		nics['unused']="${nics['unused']} ${nic_name}"
 	fi
 done
-
-# TODO: Perform nic connections consistency check
-# Note: with one network it must be mgmt
-# Note: with two networks they must be mgmt and lan
 
 # Remove my_ip/test_ip, network/netmask/network_base/mtu and domain_name/reverse_domain_name entries for non-existent networks
 for zone in "${!network[@]}" ; do
@@ -671,6 +719,9 @@ for zone in "${!network[@]}" ; do
 		unset reverse_domain_name[${zone}]
 	fi
 done
+
+# TODO: Perform nic connections consistency check
+# TODO: either offer service on all networks or keep mgmt as trusted if there is at least another one
 
 # Determine network segment identity and parameters
 if [ -n "${nics['lan']}" ]; then
@@ -708,9 +759,14 @@ for zone in "${!network[@]}" ; do
 		fi
 		# Add hostname option on the lan zone only (or on mgmt if there is only one network)
 		if [ "${zone}" = "${my_zone}" ]; then
-			further_options="${further_options} --hostname=${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]}"
+			if [ "${domain_join}" = "true" ]; then
+				further_options="${further_options} --hostname=${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]}"
+			else
+				further_options="${further_options} --hostname=${my_name}.${domain_name[${zone}]}"
+			fi
 		fi
 		# Single (plain) interface
+		# TODO: support multiple interfaces per zone (mainly for the physical machine case) - introduce bondopts for each zone
 		cat <<- EOF >> /tmp/full-network
 		network --device=${nic_names} --activate --onboot=yes --bootproto=static --ip=${my_ip[${zone}]} --netmask=${netmask[${zone}]} --mtu=${mtu[${zone}]} ${further_options}
 		EOF
@@ -743,18 +799,26 @@ mkdir -p /tmp/hvp-users-conf
 cat << EOF > /tmp/hvp-users-conf/rc.users-setup
 #!/bin/bash
 
-# Configure SSH (allow only listed users)
-sed -i -e "/^PermitRootLogin/s/\\\$/\\\\nAllowUsers root ${admin_username}/" /etc/ssh/sshd_config
+# Note: if not joined to AD then administrative access is only local
+if [ "${domain_join}" != "true" ]; then
+	# Configure SSH (allow only listed users)
+	sed -i -e "/^PermitRootLogin/s/\\\$/\\\\nAllowUsers root ${admin_username}/" /etc/ssh/sshd_config
+fi
 
-# Configure email aliases (divert root email to administrative account)
+# Configure email aliases
+# Divert root email to administrative account
 sed -i -e "s/^#\\\\s*root.*\\\$/root:\\\\t\\\\t${admin_username}/" /etc/aliases
-cat << EOM >> /etc/aliases
-
-# Email alias for server monitoring
-monitoring:	${admin_username}
-
-EOM
-newaliases
+# Divert local notification emails to administrative account
+if echo "${notification_receiver}" | grep -q '@localhost\$' ; then
+	alias=\$(echo "${notification_receiver}" | sed -e 's/@localhost\$//')
+	cat <<- EOM >> /etc/aliases
+	
+	# Email alias for server monitoring
+	\${alias}:	${admin_username}
+	
+	EOM
+	newaliases
+fi
 EOF
 
 # Create localization setup fragment
@@ -883,9 +947,15 @@ cat << EOF > hosts
 EOF
 for zone in "${!network[@]}" ; do
 	if [ "${zone}" = "${my_zone}" ]; then
-		cat <<- EOF >> hosts
-		${my_ip[${zone}]}		${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}
-		EOF
+		if [ "${domain_join}" = "true" ]; then
+			cat <<- EOF >> hosts
+			${my_ip[${zone}]}		${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}
+			EOF
+		else
+			cat <<- EOF >> hosts
+			${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]} ${my_name}
+			EOF
+		fi
 	else
 		cat <<- EOF >> hosts
 		${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]}
@@ -895,6 +965,7 @@ done
 popd
 
 # Prepare TCP wrappers custom lines to be appended later on
+# TODO: either offer service on all networks or keep mgmt as trusted if there is at least another one
 mkdir -p /tmp/hvp-tcp_wrappers-conf
 allowed_addr="127.0.0.1"
 if [ -n "${nics['lan']}" ]; then
@@ -942,8 +1013,46 @@ if [ "${domain_join}" = "true" ]; then
 	    exit \${res}
 	else
 	    klist
-	    realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) --automatic-id-mapping=no ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
+	    realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) --computer-ou=OU="DB Servers" --automatic-id-mapping=no ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
+	    # Add further Kerberos SPNs
+	    case "${dbtype}" in
+	        postgresql)
+	            further_spn="postgres"
+	            ;;
+	    esac
+	    if [ -n "\${further_spn}" ]; then
+	        # TODO: adcli update should be preferred but it's not usable as per https://bugzilla.redhat.com/show_bug.cgi?id=1547013
+	        # TODO: try adcli update with explicit --login-ccache parameter as per https://bugs.freedesktop.org/show_bug.cgi?id=99460
+	        adcli join --domain=${ad_subdomain_prefix}.${domain_name[${my_zone}]} --service-name=host --service-name=RestrictedKrbHost --service-name=\${further_spn}
+	    fi
 	    kdestroy
+	    # Limit access from AD accounts
+	    # TODO: GPOs must be created to limit access
+	    cat <<- EOM >> /etc/sssd/sssd.conf
+	    ad_gpo_access_control = enforcing
+	    EOM
+	    # Complete SSSD configuration for AD
+	    sed -i -e '/services/s/\$/, pac/' /etc/sssd/sssd.conf
+	    cat <<- EOM >> /etc/sssd/sssd.conf
+	    auth_provider = ad
+	    chpass_provider = ad
+	    EOM
+	    # Configure sudo for AD-integrated LDAP rules
+	    # Note: using SSSD (instead of direct LDAP access) as sudo backend
+	    cat <<- EOM >> /etc/nsswitch.conf
+	    
+	    sudoers:    files sss
+	    EOM
+	    sed -i -e '/services/s/\$/, sudo/' /etc/sssd/sssd.conf
+	    cat <<- EOM >> /etc/sssd/sssd.conf
+	    sudo_provider = ad
+	    EOM
+	    systemctl restart sssd
+	    # Configure SSH server and client for Kerberos SSO
+	    # TODO: verify auth_to_local mapping rules in /etc/krb5.conf
+	    sed -i -e 's/^#GSSAPIKeyExchange\\s.*\$/GSSAPIKeyExchange yes\\nGSSAPIStoreCredentialsOnRekey yes/' /etc/ssh/sshd_config
+	    sed -i -e 's/^\\(\\s*\\)\\(GSSAPIAuthentication\\s*yes\\).*\$/\\1\\2\\n\\1GSSAPIDelegateCredentials yes\\n\\1GSSAPIKeyExchange yes\\n\\1GSSAPIRenewalForcesRekey yes/' /etc/ssh/ssh_config
+	    systemctl restart sshd
 	fi
 	EOF
 	popd
@@ -960,7 +1069,7 @@ case "${dbtype}" in
 		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
 
 		# Initialize PostgreSQL
-		/usr/pgsql-${dbversion}/bin/postgresql${repoversion}-setup initdb
+		/usr/pgsql-${dbversion}/bin/postgresql\${repoversion}-setup initdb
 
 		# Enable and start PostgreSQL
 		systemctl --now enable postgresql-${dbversion}
@@ -1001,12 +1110,17 @@ case "${dbtype}" in
 		;;
 	mysql)
 		# Initialize MySQL
-		# Note: the following suggests to use "mysqld --initialize" instead
-		# TODO: update the following using new style command
-		mysql_install_db --insecure --user=mysql --datadir=/var/lib/mysql
+		mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
+
+		# Use our own X.509 certificate for Percona Server
+		# Note: configuration performed here to leave /var/lib/mysql empty before initialization
+		cat /etc/pki/tls/private/localhost.key > /var/lib/mysql/private_key.pem
+		openssl rsa -in /etc/pki/tls/private/localhost.key -pubout > /var/lib/mysql/public_key.pem
+		chown mysql:mysql /var/lib/mysql/{private,public}_key.pem
+		chmod 440 /var/lib/mysql/{private,public}_key.pem
 
 		# Enable and start MySQL
-		# Note: Percona service has been renamed "mysqld" (as all others MySQL distributions) instead of "mysql"
+		# Note: Percona service has been renamed "mysqld" (as all other MySQL distributions) instead of "mysql"
 		systemctl --now enable mysqld
 
 		# Configure MySQL root password
@@ -1027,7 +1141,7 @@ case "${dbtype}" in
 		user=root
 		pass=${root_password}
 		host=localhost
-		db=
+		db=mysql
 		delay=5
 		port=3306
 		socket=
@@ -1039,8 +1153,7 @@ case "${dbtype}" in
 		chmod 600 /root/.mytop
 
 		# Configure phpMyAdmin (allow only through HTTPS; allow from localhost and our networks only)
-		# TODO: verify with newer conditional (Apache 2.2/2.4) and IPv6-too configuration
-		sed -i -e 's/^\\(\\s*\\)\\(Order\\s*\\).*\\\$/\\1\\2allow,deny/' -e "/^\\\\s*Allow\\\\s*from\\\\s*127\\\\.0\\\\.0\\\\.1/s>127\\\\.0\\\\.0\\\\.1.*\\$>${allowed_addr}>" -e "/^\\\\s*Require\\\\s*local/s>local.*\\$>ip ${allowed_addr}>" -e 's>^\\(\\s*\\)\\(Allow\\s*from\\|Require\\s*ip\\)\\(\\s*127\\.0\\.0\\.1.*\\)\$>\\1\\2\\3\\n\\1RewriteEngine On\\n\\1RewriteCond %{HTTPS} !=on\\n\\1RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]>' /etc/httpd/conf.d/phpMyAdmin.conf
+		sed -i -e 's/^\\(\\s*\\)\\(Order\\s*\\).*\\\$/\\1\\2allow,deny/' -e "/^\\\\s*Allow\\\\s*from\\\\s*127\\\\.0\\\\.0\\\\.1/s>127\\\\.0\\\\.0\\\\.1.*\\$>${allowed_addr}>" -e "/^\\\\s*Require\\\\s*local/s>local.*\\$>ip ${allowed_addr}>" -e 's%^\\(\\s*\\)\\(<IfModule\\s*mod_authz_core.c>.*\\)\$%\\1RewriteEngine On\\n\\1RewriteCond %{HTTPS} !=on\\n\\1RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]%\\n\\1\\2' /etc/httpd/conf.d/phpMyAdmin.conf
 		# Add Apache alias for phpMyAdmin
 		cat <<- EOM >> /etc/httpd/conf.d/phpMyAdmin.conf
 
@@ -1112,7 +1225,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018032802"
+script_version="2018042701"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1154,19 +1267,29 @@ cat /etc/resolv.conf >> /tmp/post.out
 echo "POST hosts" >> /tmp/post.out
 cat /etc/hosts >> /tmp/post.out
 
+# Hardcoded defaults
+
+unset network
+unset netmask
+unset network_base
+unset mtu
+unset domain_name
+unset reverse_domain_name
+unset test_ip
+unset multi_instance_max
+unset nicmacfix
+unset dbtype
+unset dbversion
+
 # Define associative arrays
 declare -A network netmask network_base mtu
 declare -A domain_name
 declare -A reverse_domain_name
 declare -A test_ip
 
-# Hardcoded defaults
-
-unset nicmacfix
-unset dbtype
-unset dbversion
-
 nicmacfix="false"
+
+multi_instance_max="9"
 
 dbtype="postgresql"
 dbversion="9.6"
@@ -1192,6 +1315,12 @@ popd
 # Determine choice of nic MAC fixed assignment
 if grep -w -q 'hvp_nicmacfix' /proc/cmdline ; then
 	nicmacfix="true"
+fi
+
+# Determine multi-instance limit
+given_multi_instance_max=$(sed -n -e 's/^.*hvp_maxinstances=\(\S*\).*$/\1/p' /proc/cmdline)
+if echo "${given_multi_instance_max}" | grep -q '^[[:digit:]]\+$' ; then
+	multi_instance_max="${given_multi_instance_max}"
 fi
 
 # Determine database type
@@ -1245,7 +1374,7 @@ ln -sf $rootdisk /dev/root
 yum-config-manager --enable cr > /dev/null
 
 # Add HVP custom repo
-yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-2.noarch.rpm
+yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-3.noarch.rpm
 
 # Add upstream repository definitions
 yum -y install http://packages.psychotic.ninja/6/base/i386/RPMS/psychotic-release-1.0.0-1.el6.psychotic.noarch.rpm
@@ -1317,7 +1446,7 @@ yum -y install webalizer mrtg net-snmp net-snmp-utils
 yum -y install webmin
 
 # Install needed packages to join AD domain
-yum -y install sssd-ad realmd adcli krb5-workstation samba-common
+yum -y install sssd-ad realmd adcli krb5-workstation samba-common sssd-tools
 
 # Install database packages
 case "${dbtype}" in
@@ -1326,11 +1455,13 @@ case "${dbtype}" in
 		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
 
 		# Add PostgreSQL upstream repository
-		# Note: using the lowest package release possible in order to support different versions - updating anyway immediately after
-		yum -y install https://download.postgresql.org/pub/repos/yum/${dbversion}/redhat/rhel-7-x86_64/pgdg-redhat${repoversion}-${dbversion}-1.noarch.rpm
-		yum -y upgrade
-		find /etc -type f -name '*.rpmnew' -exec rename .rpmnew "" '{}' ';'
-		find /etc -type f -name '*.rpmsave' -exec rm -f '{}' ';'
+		# TODO: it seems that older release packages get purged - downloading all and installing latest from local - open notification upstream
+		mkdir /tmp/pgdg-all
+		pushd /tmp/pgdg-all
+		wget -e robots=off -r -l1 -nd -np "https://download.postgresql.org/pub/repos/yum/${dbversion}/redhat/rhel-7-x86_64/" -A "pgdg-redhat${repoversion}-${dbversion}-*.noarch.rpm"
+		find . -type f -print0 | sort -z -r | sed -z -n -e '1p' | xargs -0 yum -y install 
+		popd
+		rm -rf /tmp/pgdg-all
 
 		# Install upstream PostgreSQL (newer) instead of the standard (CentOS-provided) one
 		yum -y install postgresql${repoversion} postgresql${repoversion}-server
@@ -1471,7 +1602,6 @@ for repofile in /etc/yum.repos.d/*.repo; do
 	fi
 done
 # Modify baseurl definitions to allow effective use of our proxy cache
-sed -i -e 's>http://apt\.sw\.be/redhat/el7/en/>http://ftp.fi.muni.cz/pub/linux/repoforge/redhat/el7/en/>g' /etc/yum.repos.d/rpmforge.repo
 sed -i -e 's>http://download.fedoraproject.org/pub/epel/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/7/>g' /etc/yum.repos.d/epel.repo
 sed -i -e 's>http://download.fedoraproject.org/pub/epel/testing/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/testing/7/>g' /etc/yum.repos.d/epel-testing.repo
 
@@ -1664,8 +1794,8 @@ systemctl enable chronyd
 # Note: Configured TCP wrappers allow file in pre above and copied in second post below
 echo "ALL: ALL" >> /etc/hosts.deny
 
-# Configure SSH (show legal banner, no root login with password, limit authentication tries, no DNS tracing of incoming connections)
-sed -i -e 's/^#\s*PermitRootLogin.*$/PermitRootLogin without-password/' -e 's/^#\s*MaxAuthTries.*$/MaxAuthTries 3/' -e 's/^#\s*UseDNS.*$/UseDNS no/' -e 's%^#\s*Banner.*$%Banner /etc/issue.net%' /etc/ssh/sshd_config
+# Configure SSH (show legal banner, limit authentication tries, no DNS tracing of incoming connections)
+sed -i -e 's/^#\s*MaxAuthTries.*$/MaxAuthTries 3/' -e 's/^#\s*UseDNS.*$/UseDNS no/' -e 's%^#\s*Banner.*$%Banner /etc/issue.net%' /etc/ssh/sshd_config
 # Force security-conscious length of host keys by pre-creating them here
 # Note: ED25519 keys have a fixed length so they are not created here
 # Note: using haveged to ensure enough entropy (but rngd could be already running from installation environment)
@@ -2056,15 +2186,12 @@ if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Par
 	systemctl enable mcelog
 fi
 
-# TODO: Configure Bareos
-
-# TODO: Enable Bareos
-systemctl disable bareos-fd
-
 # Configure database
 # Note: initial database provisioning performed by script created in pre section above and copied in third post section below
 case "${dbtype}" in
 	postgresql)
+		# Define data dump command
+		dbdump="PGPASSWORD='${root_password}' pg_dumpall -v -U postgres -f /var/local/backup/\${prefix}-\${content}.sql > /var/local/backup/\${prefix}-\${content}.log 2>&1"
 		# Configure firewall
 		firewall-offline-cmd --add-service=postgresql
 
@@ -2079,6 +2206,8 @@ case "${dbtype}" in
 		sed -i -e "/extra_login_security/s/true/false/" /etc/phpPgAdmin/config.inc.php
 		;;
 	mysql)
+		# Define data dump command
+		dbdump="mysqldump --verbose --opt --user=root --password '${root_password}' --all-databases --events --routines --triggers --result-file=/var/local/backup/\${prefix}-\${content}.sql > /var/local/backup/\${prefix}-\${content}.log 2>&1"
 		# Configure firewall
 		firewall-offline-cmd --add-service=mysql
 
@@ -2196,11 +2325,7 @@ case "${dbtype}" in
 		EOF
 		chmod 644 /etc/my.cnf.d/local.cnf
 		
-		# Use our own X.509 certificate for Percona Server
-		cat /etc/pki/tls/private/localhost.key > /var/lib/mysql/private_key.pem
-		openssl rsa -in /etc/pki/tls/private/localhost.key -pubout > /var/lib/mysql/public_key.pem
-		chown mysql:mysql /var/lib/mysql/{private,public}_key.pem
-		chmod 440 /var/lib/mysql/{private,public}_key.pem
+		# Note: X.509 certificate setup interfers with initialization: demanded to post-install rc.ks1stboot script
 		
 		# Add logrotate support for slow query logging
 		# Note: Percona Server has the logrotate fragment named "mysql" instead of "mysqld"
@@ -2225,6 +2350,9 @@ case "${dbtype}" in
 		systemctl disable mysqld
 		;;
 	firebird)
+		# Define data dump command
+		# TODO: find a way to generalize database selection
+		dbdump='gback -b -v -t -user sysdba -password masterkey -y /var/local/backup/${prefix}-${content}-employee.log employee /var/local/backup/${prefix}-${content}-employee.fbk'
 		# Configure firewall
 		cat <<- EOF > /etc/firewalld/services/firebird.xml
 		<?xml version="1.0" encoding="utf-8"?>
@@ -2245,6 +2373,8 @@ case "${dbtype}" in
 		systemctl enable firebird-superserver
 		;;
 	mongodb)
+		# Define data dump command
+		dbdump='mongodump -v --gzip --archive /var/local/backup/${prefix}-${content}.gz > /var/local/backup/${prefix}-${content}.log 2>&1'
 		# Configure firewall
 		cat <<- EOF > /etc/firewalld/services/mongodb.xml
 		<?xml version="1.0" encoding="utf-8"?>
@@ -2273,6 +2403,9 @@ case "${dbtype}" in
 		systemctl enable mongod
 		;;
 	sqlserver)
+		# Define data dump command
+		# TODO: find a way to generalize database selection
+		dbdump="sqlcmd -S localhost -U SA -P '${root_password}' -Q \"BACKUP DATABASE [demodb] TO DISK = N'/var/local/backup/\${prefix}-\${content}-demodb.bak' WITH NOFORMAT, NOINIT, NAME = N'demodb-full', SKIP, NOREWIND, NOUNLOAD, STATS = 10\" > /var/local/backup/${prefix}-${content}-demodb.log 2>&1"
 		# Configure firewall
 		cat <<- EOF > /etc/firewalld/services/mssql.xml
 		<?xml version="1.0" encoding="utf-8"?>
@@ -2347,6 +2480,34 @@ case "${dbtype}" in
 		;;
 esac
 
+# TODO: Configure Bareos
+
+# Create HVP standard directory for machine-specific application dumps
+mkdir -p /var/local/backup
+chown root:root /var/local/backup
+chmod 750 /var/local/backup
+
+# Create HVP standard script for machine-specific application dumps
+cat << EOF > /usr/local/sbin/dump2backup
+#!/bin/bash
+# Dump DB server data to be picked up by standard filesystem backup
+prefix="\$(hostname)-\$(date '+%Y-%m-%d_%H-%M-%S')"
+content="${dbtype}-database-backup"
+${dbdump}
+res=\$?
+if [ \${res} -ne 0 ]; then
+	# In case of errors, do not remove anything and return error code upstream
+	exit \${res}
+fi
+# Keep only the last two dumps and logs
+find /var/local/backup -type f -printf '%T@\\t%p\\0' | sort -z -nrk1 | sed -z -n -e '5,\$s/^\\S*\\s*//p' | xargs -0 rm -f --
+EOF
+chown root:root /usr/local/sbin/dump2backup
+chmod 750 /usr/local/sbin/dump2backup
+
+# TODO: Enable Bareos
+systemctl disable bareos-fd
+
 # Configure root home dir (with utility scripts for basic configuration/log backup)
 mkdir -p /root/{etc,bin,log,tmp,backup}
 cat << EOF > /root/bin/backup-log
@@ -2377,6 +2538,48 @@ $(date '+%Y/%m/%d')
 *) installed $(lsb_release -i -r -s) $(uname -m) from kickstart
 
 EOF
+
+# Allow first boot configuration through SELinux
+# Note: obtained by means of: cat /var/log/audit/audit.log | audit2allow -M myks1stboot
+# TODO: remove when SELinux policy fixed upstream
+mkdir -p /etc/selinux/local
+cat << EOF > /etc/selinux/local/myks1stboot.te
+
+module myks1stboot 3.0;
+
+require {
+	type sendmail_t;
+	type postfix_master_t;
+	type admin_home_t;
+	type setfiles_t;
+	type ifconfig_t;
+	type initrc_t;
+	type systemd_hostnamed_t;
+	class dbus send_msg;
+	class file { getattr write };
+}
+
+#============= ifconfig_t ==============
+allow ifconfig_t admin_home_t:file write;
+
+#============= sendmail_t ==============
+allow sendmail_t admin_home_t:file write;
+
+#============= postfix_master_t ==============
+allow postfix_master_t admin_home_t:file { getattr write };
+
+#============= setfiles_t ==============
+allow setfiles_t admin_home_t:file write;
+
+#============= systemd_hostnamed_t ==============
+allow systemd_hostnamed_t initrc_t:dbus send_msg;
+EOF
+chmod 644 /etc/selinux/local/myks1stboot.te
+
+pushd /etc/selinux/local
+checkmodule -M -m -o myks1stboot.mod myks1stboot.te
+semodule_package -o myks1stboot.pp -m myks1stboot.mod
+semodule -i myks1stboot.pp
 
 # Set up "first-boot" configuration script (steps that require a fully up system)
 cat << EOF > /etc/rc.d/rc.ks1stboot
@@ -2486,6 +2689,34 @@ cat << EOF >> /etc/rc.d/rc.ks1stboot
 # Run dynamically determined users configuration actions
 if [ -x /etc/rc.d/rc.users-setup ]; then
 	/etc/rc.d/rc.users-setup
+fi
+
+# Check/modify hostname for uniqueness
+main_interface=\$(ip route show | awk '/^default/ {print \$5}')
+main_ip=\$(ip address show dev \${main_interface} primary | awk '/inet[[:space:]]/ {print \$2}' | cut -d/ -f1)
+current_name=\$(hostname -s)
+target_domain=\$(hostname -d)
+multi_instance_max="${multi_instance_max}"
+check_ip="\$(dig \${current_name}.\${target_domain} A +short)"
+# Check whether name resolves and does not match with IP address
+if [ -n "\${check_ip}" -a "\${check_ip}" != "\${main_ip}" ]; then
+	# Name does not match: modify (starting from suffix 2) and resolve it till it is either unknown or matching with configured IP
+	tentative_name_found="false"
+	for ((name_increment=2;name_increment<=\${multi_instance_max}+1;name_increment=name_increment+1)); do
+		tentative_name="\${current_name}\${name_increment}"
+		check_ip="\$(dig \${tentative_name}.\${target_domain} A +short)"
+		if [ -z "\${check_ip}" -o "\${check_ip}" = "\${main_ip}" ]; then
+			tentative_name_found="true"
+			break
+		fi
+	done
+	if [ "\${tentative_name_found}" = "true" ]; then
+		# Enact new hostname
+		hostnamectl set-hostname \${tentative_name}.\${target_domain}
+		# Modify already saved entries
+		# Note: names on secondary zones are kept aligned
+		sed -i -e "s/\\b\${current_name}\\b/\${tentative_name}/g" /etc/hosts
+	fi
 fi
 
 # Run AD domain joining script
