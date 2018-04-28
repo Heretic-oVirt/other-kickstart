@@ -16,6 +16,7 @@
 # Note: to force custom IPs add hvp_{mgmt,lan}_my_ip=t.t.t.t where t.t.t.t is the chosen IP on the given network
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
 # Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
+# Note: to force custom multi-instance limit for each vm type (kickstart) add hvp_maxinstances=A where A is the maximum number of instances
 # Note: to force custom AD subdomain naming add hvp_ad_subdomainname=myprefix where myprefix is the subdomain name
 # Note: to force custom NetBIOS domain naming add hvp_netbiosdomain=MYDOM where MYDOM is the NetBIOS domain name
 # Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an existing domain) or "false" (create a new domain/forest)
@@ -25,9 +26,11 @@
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
 # Note: to force custom storage naming add hvp_storagename=mystoragename where mystoragename is the unqualified (ie without domain name part) hostname of the storage
 # Note: to force custom storage IPs add hvp_storage_offset=o where o is the storage IPs base offset on mgmt/lan networks
+# Note: to force custom Gluster NFS-shares volume naming add hvp_unixshare_volumename=myvolumename where myvolumename is the volume name
 # Note: to force custom root password add hvp_rootpwd=mysecret where mysecret is the root user password
 # Note: to force custom admin username add hvp_adminname=myadmin where myadmin is the admin username
 # Note: to force custom admin password add hvp_adminpwd=myothersecret where myothersecret is the admin user password
+# Note: to force custom email address for notification receiver add hvp_receiver_email=name@domain where name@domain is the email address
 # Note: to force custom AD further admin username add hvp_winadminname=mywinadmin where mywinadmin is the further AD admin username
 # Note: to force custom AD further admin password add hvp_winadminpwd=mywinothersecret where mywinothersecret is the further AD admin user password
 # Note: to force custom keyboard layout add hvp_kblayout=cc where cc is the country code
@@ -38,6 +41,7 @@
 # Note: the default MTU is assumed to be 1500 on {mgmt,lan}
 # Note: the default machine IPs are assumed to be the 220th IPs available (network address + 220) on each connected network
 # Note: the default domain names are assumed to be {mgmt,lan}.private
+# Note: the default multi-instance limit is assumed to be 9
 # Note: the default AD subdomain name is assumed to be ad
 # Note: the default NetBIOS domain name is equal to the first part of the AD DNS subdomain name (on the lan network, or mgmt if there is only one network) in uppercase
 # Note: the default domain action is "false" (create a new domain/forest)
@@ -47,9 +51,11 @@
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
 # Note: the default storage naming uses the "My Little Pony" character name discord for the storage service
 # Note: the default storage IPs base offset on mgmt/lan networks is assumed to be the network address plus 30
+# Note: the default Gluster NFS-shares volume naming uses the name unixshare
 # Note: the default root user password is HVP_dem0
 # Note: the default admin username is hvpadmin
 # Note: the default admin user password is HVP_dem0
+# Note: the default notification email address for receiver is monitoring@localhost
 # Note: the default AD further admin username is the same as the admin username with the string "ad" prefixed
 # Note: the default AD further admin user password is HVP_dem0
 # Note: the default keyboard layout is us
@@ -236,7 +242,9 @@ unset test_ip
 unset test_ip_offset
 unset storage_name
 unset storage_ip_offset
+unset gluster_vol_name
 unset my_ip_offset
+unset multi_instance_max
 unset my_name
 unset my_nameserver
 unset my_forwarders
@@ -244,6 +252,7 @@ unset my_gateway
 unset root_password
 unset admin_username
 unset admin_password
+unset notification_receiver
 unset winadmin_username
 unset winadmin_password
 unset keyboard_layout
@@ -257,6 +266,9 @@ default_node_count="3"
 
 storage_name="discord"
 
+declare -A gluster_vol_name
+gluster_vol_name['unixshare']="unixshare"
+
 # Note: IP offsets below get used to automatically derive IP addresses
 # Note: no need to allow offset overriding from commandline if the IP address itself can be specified
 
@@ -264,6 +276,8 @@ storage_name="discord"
 test_ip_offset="1"
 
 my_ip_offset="220"
+
+multi_instance_max="9"
 
 # TODO: verify whether the final addresses (network+offset+index) lie inside the network boundaries
 # TODO: verify whether the final addresses (network+offset+index) overlap with base node addresses
@@ -279,10 +293,15 @@ network['lan']="172.20.12.0"
 netmask['lan']="255.255.255.0"
 network_base['lan']="172.20.12"
 mtu['lan']="1500"
+network['internal']="172.20.13.0"
+netmask['internal']="255.255.255.0"
+network_base['internal']="172.20.13"
+mtu['internal']="1500"
 
 declare -A domain_name
 domain_name['mgmt']="mgmt.private"
 domain_name['lan']="lan.private"
+domain_name['internal']="internal.private"
 
 domain_join="false"
 
@@ -291,6 +310,7 @@ sysvolrepl_password="HVP_dem0"
 declare -A reverse_domain_name
 reverse_domain_name['mgmt']="10.20.172.in-addr.arpa"
 reverse_domain_name['lan']="12.20.172.in-addr.arpa"
+reverse_domain_name['internal']="13.20.172.in-addr.arpa"
 
 ad_subdomain_prefix="ad"
 
@@ -310,6 +330,8 @@ admin_password="HVP_dem0"
 winadmin_password="HVP_dem0"
 keyboard_layout="us"
 local_timezone="UTC"
+
+notification_receiver="monitoring@localhost"
 
 # Detect any configuration fragments and load them into the pre environment
 # Note: BIOS based devices, file and DHCP methods are unsupported
@@ -505,6 +527,12 @@ if [ -n "${given_winadmin_password}" ]; then
 	winadmin_password="${given_winadmin_password}"
 fi
 
+# Determine notification receiver email address
+given_receiver_email=$(sed -n -e "s/^.*hvp_receiver_email=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_receiver_email}" ]; then
+	notification_receiver="${given_receiver_email}"
+fi
+
 # Determine keyboard layout
 given_keyboard_layout=$(sed -n -e "s/^.*hvp_kblayout=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_keyboard_layout}" ]; then
@@ -523,10 +551,22 @@ if echo "${given_storage_offset}" | grep -q '^[[:digit:]]\+$' ; then
 	storage_ip_offset="${given_storage_offset}"
 fi
 
+# Determine Gluster NFS-shares volume name
+given_volume_name=$(sed -n -e "s/^.*hvp_unixshare_volumename=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_volume_name}" ]; then
+	gluster_vol_name['unixshare']="${given_volume_name}"
+fi
+
 # Determine hostname
 given_hostname=$(sed -n -e 's/^.*hvp_myname=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_hostname}" | grep -q '^[[:alnum:]]\+$' ; then
 	my_name="${given_hostname}"
+fi
+
+# Determine multi-instance limit
+given_multi_instance_max=$(sed -n -e 's/^.*hvp_maxinstances=\(\S*\).*$/\1/p' /proc/cmdline)
+if echo "${given_multi_instance_max}" | grep -q '^[[:digit:]]\+$' ; then
+	multi_instance_max="${given_multi_instance_max}"
 fi
 
 # Determine AD subdomain name
@@ -632,13 +672,15 @@ fi
 # Disable any interface configured by NetworkManager
 # Note: NetworkManager may interfer with interface assignment autodetection logic below
 # Note: interfaces will be explicitly activated again by our dynamically created network configuration fragment
-for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|lo|sit[0-9])$' | sort); do
-	if nmcli device show "${nic_name}" | grep -q '^GENERAL.STATE:.*(connected)' ; then
-		nmcli device disconnect "${nic_name}"
-		nmcli connection delete "${nic_name}"
-		ip addr flush dev "${nic_name}"
-		ip link set mtu 1500 dev "${nic_name}"
+for device_name in $(nmcli -t device show | awk -F: '/^GENERAL\.DEVICE:/ {print $2}' | egrep -v '^(bonding_masters|lo|sit[0-9])$' | sort); do
+	if nmcli -t device show "${device_name}" | grep -q '^GENERAL\.STATE:.*(connected)' ; then
+		nmcli device disconnect "${device_name}"
+		ip addr flush dev "${device_name}"
+		ip link set mtu 1500 dev "${device_name}"
 	fi
+done
+for connection_name in $(nmcli -t connection show | awk -F: '{print $1}' | sort); do
+	nmcli connection delete "${connection_name}"
 done
 
 # Determine network interface assignment
@@ -662,9 +704,24 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			fi
 			unset PREFIX
 			eval $(ipcalc -s -p "${network[${zone}]}" "${netmask[${zone}]}")
-			ip addr add "${my_ip[${zone}]}/${PREFIX}" dev "${nic_name}"
+			# Perform duplicate IP detection and increment IP till it is unique
+			tentative_ip_found="false"
+			for ((ip_increment=0;ip_increment<=${multi_instance_max};ip_increment=ip_increment+1)); do
+				tentative_ip=$(ipmat ${my_ip[${zone}]} ${ip_increment} +)
+				if arping -q -c 2 -w 3 -D -I ${nic_name} ${tentative_ip} ; then
+					# No collision detected: try to use this IP address
+					tentative_ip_found="true"
+					break
+				fi
+			done
+			if [ "${tentative_ip_found}" = "false" ]; then
+				# All IP addresses already taken - skip
+				continue
+			fi
+			ip addr add "${tentative_ip}/${PREFIX}" dev "${nic_name}"
 			res=$?
 			if [ ${res} -ne 0 ] ; then
+				# There has been a problem in assigning the IP address - skip
 				ip addr flush dev "${nic_name}"
 				ip link set mtu 1500 dev "${nic_name}"
 				continue
@@ -675,6 +732,11 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			if ping -c 3 -w 8 -i 2 "${test_ip[${zone}]}" > /dev/null 2>&1 ; then
 				nics["${zone}"]="${nics[${zone}]} ${nic_name}"
 				nic_assigned='true'
+				# Note: we keep IP addresses aligned on all zones
+				# Note: IP/name coherence check and correction demanded to post-install rc.ks1stboot script
+				for zone_to_align in "${!network[@]}" ; do
+					my_ip[${zone_to_align}]=$(ipmat ${my_ip[${zone_to_align}]} ${ip_increment} +)
+				done
 				ip addr flush dev "${nic_name}"
 				ip link set mtu 1500 dev "${nic_name}"
 				break
@@ -683,16 +745,14 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			ip link set mtu 1500 dev "${nic_name}"
 		done
 		if [ "${nic_assigned}" = "false" ]; then
+			# Disable unassignable nics
 			nics['unused']="${nics['unused']} ${nic_name}"
 		fi
 	else
+		# Disable unconnected nics
 		nics['unused']="${nics['unused']} ${nic_name}"
 	fi
 done
-
-# TODO: Perform nic connections consistency check
-# Note: with one network it must be mgmt
-# Note: with two networks they must be mgmt and lan
 
 # Remove my_ip/test_ip, network/netmask/network_base/mtu and domain_name/reverse_domain_name entries for non-existent networks
 for zone in "${!network[@]}" ; do
@@ -707,6 +767,9 @@ for zone in "${!network[@]}" ; do
 		unset reverse_domain_name[${zone}]
 	fi
 done
+
+# TODO: Perform nic connections consistency check
+# TODO: either offer service on all networks or keep mgmt as trusted if there is at least another one
 
 # Determine network segment identity and parameters
 if [ -n "${nics['lan']}" ]; then
@@ -752,6 +815,7 @@ for zone in "${!network[@]}" ; do
 			further_options="${further_options} --hostname=${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]}"
 		fi
 		# Single (plain) interface
+		# TODO: support multiple interfaces per zone (mainly for the physical machine case) - introduce bondopts for each zone
 		cat <<- EOF >> /tmp/full-network
 		network --device=${nic_names} --activate --onboot=yes --bootproto=static --ip=${my_ip[${zone}]} --netmask=${netmask[${zone}]} --mtu=${mtu[${zone}]} ${further_options}
 		EOF
@@ -785,17 +849,23 @@ cat << EOF > /tmp/hvp-users-conf/rc.users-setup
 #!/bin/bash
 
 # Configure SSH (allow only listed users)
+# Note: the AD DC servers are not configured with AD authentication so administrative access is always local
 sed -i -e "/^PermitRootLogin/s/\\\$/\\\\nAllowUsers root ${admin_username}/" /etc/ssh/sshd_config
 
-# Configure email aliases (divert root email to administrative account)
+# Configure email aliases
+# Divert root email to administrative account
 sed -i -e "s/^#\\\\s*root.*\\\$/root:\\\\t\\\\t${admin_username}/" /etc/aliases
-cat << EOM >> /etc/aliases
-
-# Email alias for server monitoring
-monitoring:	${admin_username}
-
-EOM
-newaliases
+# Divert local notification emails to administrative account
+if echo "${notification_receiver}" | grep -q '@localhost\$' ; then
+	alias=\$(echo "${notification_receiver}" | sed -e 's/@localhost\$//')
+	cat <<- EOM >> /etc/aliases
+	
+	# Email alias for server monitoring
+	\${alias}:	${admin_username}
+	
+	EOM
+	newaliases
+fi
 EOF
 
 # Create localization setup fragment
@@ -994,8 +1064,8 @@ if [ \${res} -eq 0 ]; then
 	# Add DNS forwarders
 	sed -i -e '/^\s*dns\s*forwarder\s*=/d' /etc/samba/smb.conf
 	sed -i -e "s/^\\(\\s*\\)\\(server\\s*role.*\\)\$/\\1\\2\\n\\1dns forwarder = $(echo ${my_forwarders} | sed -e 's/,/ /g')/" /etc/samba/smb.conf
-	# Make global Kerberos configuration point to Samba custom configuration
-	ln -sf /var/lib/samba/private/krb5.conf /etc/krb5.conf
+	# Make global Kerberos configuration equal to Samba custom configuration
+	cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
 	# Enable signed NTP replies
 	cat <<- EOM >> /etc/ntp.conf
 	
@@ -1017,15 +1087,321 @@ if [ \${res} -eq 0 ]; then
 		rm -f /var/lib/samba/private/idmap.ldb
 		rsync -XAavz --password-file=/etc/samba/rsync-sysvol.secret rsync://\${domain_pdc_emulator}/SysVolRepl/idmap.ldb /var/lib/samba/private/
 		restorecon -v /var/lib/samba/private/idmap.ldb
-		# Force removal of genchache
+		# Force removal of gencache
 		# TODO: maybe needed only when using winbindd, not winbind - remove the following line if it is so
 		rm -f /var/cache/samba/gencache.tdb
-		# Reset sysvol ACLs 
-		# TODO: possible errors here - debug - maybe needs samba running?
-		samba-tool ntacl sysvolreset
+	else
+		# Modify AD schema for automounter maps support
+		domain_top_dn=\$(ldbsearch -H /var/lib/samba/private/sam.ldb -s base dn | awk '/^dn:/ {print \$2}')
+		cat <<- EOM > /etc/samba/automount_attrs.ldif
+		dn: CN=automountMapName,CN=Schema,CN=Configuration,\${domain_top_dn}
+		objectClass: top
+		objectClass: attributeSchema
+		attributeID: 1.3.6.1.1.1.1.31
+		schemaIdGuid:: SQGtFScvaoDZ8hUMHirmCw==
+		cn: automountMapName
+		name: automountMapName
+		lDAPDisplayName: automountMapName
+		description: automount Map Name
+		attributeSyntax: 2.5.5.5
+		oMSyntax: 22
+		isSingleValued: TRUE
+		
+		dn: CN=automountKey,CN=Schema,CN=Configuration,\${domain_top_dn}
+		objectClass: top
+		objectClass: attributeSchema
+		attributeID: 1.3.6.1.1.1.1.32
+		schemaIdGuid:: qGFH0ubAc2p2pJgxor8N7A==
+		cn: automountKey
+		name: automountKey
+		lDAPDisplayName: automountKey
+		description: Automount Key value
+		attributeSyntax: 2.5.5.5
+		oMSyntax: 22
+		isSingleValued: TRUE
+		
+		dn: CN=automountInformation,CN=Schema,CN=Configuration,\${domain_top_dn}
+		objectClass: top
+		objectClass: attributeSchema
+		attributeID: 1.3.6.1.1.1.1.33
+		schemaIdGuid:: WJnCqDrTLttu+RyBBWWpPQ==
+		cn: automountInformation
+		name: automountInformation
+		lDAPDisplayName: automountInformation
+		description: Automount information
+		attributeSyntax: 2.5.5.5
+		oMSyntax: 22
+		isSingleValued: TRUE
+		EOM
+		cat <<- EOM > /etc/samba/automount_classes.ldif
+		dn: CN=automountMap,CN=Schema,CN=Configuration,\${domain_top_dn}
+		objectClass: top
+		objectClass: classSchema
+		governsID: 1.3.6.1.1.1.2.16
+		schemaIdGuid:: d51ct3yZs79jXxoAG2zfHA==
+		cn: automountMap
+		name: automountMap
+		lDAPDisplayName: automountMap
+		subClassOf: top
+		objectClassCategory: 3
+		mustContain: automountMapName
+		mayContain: description
+		defaultObjectCategory: CN=automountMap,CN=Schema,CN=Configuration,\${domain_top_dn}
+		
+		dn: CN=automount,CN=Schema,CN=Configuration,\${domain_top_dn}
+		objectClass: top
+		objectClass: classSchema
+		governsID: 1.3.6.1.1.1.2.17
+		schemaIdGuid:: LKPdMpqFmsHw2t6Ewsj9Rw==
+		cn: automount
+		name: automount
+		lDAPDisplayName: automount
+		subClassOf: top
+		objectClassCategory: 3
+		description: Automount information
+		mustContain: automountKey
+		mustContain: automountInformation
+		mayContain: description
+		defaultObjectCategory: CN=automount,CN=Schema,CN=Configuration,\${domain_top_dn}
+		EOM
+		ldbmodify -H /var/lib/samba/private/sam.ldb /etc/samba/automount_attrs.ldif --option="dsdb:schema update allowed"=true
+		ldbmodify -H /var/lib/samba/private/sam.ldb /etc/samba/automount_classes.ldif --option="dsdb:schema update allowed"=true
+		# Modify AD schema for sudo rules support
+		cat <<- EOM > /etc/samba/sudo_attrs.ldif
+		dn: CN=sudoUser,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: attributeSchema
+		cn: sudoUser
+		distinguishedName: CN=sudoUser,CN=Schema,CN=Configuration,\${domain_top_dn}
+		instanceType: 4
+		attributeID: 1.3.6.1.4.1.15953.9.1.1
+		attributeSyntax: 2.5.5.5
+		isSingleValued: FALSE
+		showInAdvancedViewOnly: TRUE
+		adminDisplayName: sudoUser
+		adminDescription: User(s) who may run sudo
+		oMSyntax: 22
+		searchFlags: 1
+		lDAPDisplayName: sudoUser
+		name: sudoUser
+		schemaIDGUID:: JrGcaKpnoU+0s+HgeFjAbg==
+		objectCategory: CN=Attribute-Schema,CN=Schema,CN=Configuration,\${domain_top_dn}
+		
+		dn: CN=sudoHost,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: attributeSchema
+		cn: sudoHost
+		distinguishedName: CN=sudoHost,CN=Schema,CN=Configuration,\${domain_top_dn}
+		instanceType: 4
+		attributeID: 1.3.6.1.4.1.15953.9.1.2
+		attributeSyntax: 2.5.5.5
+		isSingleValued: FALSE
+		showInAdvancedViewOnly: TRUE
+		adminDisplayName: sudoHost
+		adminDescription: Host(s) who may run sudo
+		oMSyntax: 22
+		lDAPDisplayName: sudoHost
+		name: sudoHost
+		schemaIDGUID:: d0TTjg+Y6U28g/Y+ns2k4w==
+		objectCategory: CN=Attribute-Schema,CN=Schema,CN=Configuration,\${domain_top_dn}
+		
+		dn: CN=sudoCommand,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: attributeSchema
+		cn: sudoCommand
+		distinguishedName: CN=sudoCommand,CN=Schema,CN=Configuration,\${domain_top_dn}
+		instanceType: 4
+		attributeID: 1.3.6.1.4.1.15953.9.1.3
+		attributeSyntax: 2.5.5.5
+		isSingleValued: FALSE
+		showInAdvancedViewOnly: TRUE
+		adminDisplayName: sudoCommand
+		adminDescription: Command(s) to be executed by sudo
+		oMSyntax: 22
+		lDAPDisplayName: sudoCommand
+		name: sudoCommand
+		schemaIDGUID:: D6QR4P5UyUen3RGYJCHCPg==
+		objectCategory: CN=Attribute-Schema,CN=Schema,CN=Configuration,\${domain_top_dn}
+		
+		dn: CN=sudoRunAs,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: attributeSchema
+		cn: sudoRunAs
+		distinguishedName: CN=sudoRunAs,CN=Schema,CN=Configuration,\${domain_top_dn}
+		instanceType: 4
+		attributeID: 1.3.6.1.4.1.15953.9.1.4
+		attributeSyntax: 2.5.5.5
+		isSingleValued: FALSE
+		showInAdvancedViewOnly: TRUE
+		adminDisplayName: sudoRunAs
+		adminDescription: User(s) impersonated by sudo (deprecated)
+		oMSyntax: 22
+		lDAPDisplayName: sudoRunAs
+		name: sudoRunAs
+		schemaIDGUID:: CP98mCQTyUKKxGrQeM80hQ==
+		objectCategory: CN=Attribute-Schema,CN=Schema,CN=Configuration,\${domain_top_dn}
+		
+		dn: CN=sudoOption,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: attributeSchema
+		cn: sudoOption
+		distinguishedName: CN=sudoOption,CN=Schema,CN=Configuration,\${domain_top_dn}
+		instanceType: 4
+		attributeID: 1.3.6.1.4.1.15953.9.1.5
+		attributeSyntax: 2.5.5.5
+		isSingleValued: FALSE
+		showInAdvancedViewOnly: TRUE
+		adminDisplayName: sudoOption
+		adminDescription: Option(s) followed by sudo
+		oMSyntax: 22
+		lDAPDisplayName: sudoOption
+		name: sudoOption
+		schemaIDGUID:: ojaPzBBlAEmsvrHxQctLnA==
+		objectCategory: CN=Attribute-Schema,CN=Schema,CN=Configuration,\${domain_top_dn}
+		
+		dn: CN=sudoRunAsUser,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: attributeSchema
+		cn: sudoRunAsUser
+		distinguishedName: CN=sudoRunAsUser,CN=Schema,CN=Configuration,\${domain_top_dn}
+		instanceType: 4
+		attributeID: 1.3.6.1.4.1.15953.9.1.6
+		attributeSyntax: 2.5.5.5
+		isSingleValued: FALSE
+		showInAdvancedViewOnly: TRUE
+		adminDisplayName: sudoRunAsUser
+		adminDescription: User(s) impersonated by sudo
+		oMSyntax: 22
+		lDAPDisplayName: sudoRunAsUser
+		name: sudoRunAsUser
+		schemaIDGUID:: 9C52yPYd3RG3jMR2VtiVkw==
+		objectCategory: CN=Attribute-Schema,CN=Schema,CN=Configuration,\${domain_top_dn}
+		
+		dn: CN=sudoRunAsGroup,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: attributeSchema
+		cn: sudoRunAsGroup
+		distinguishedName: CN=sudoRunAsGroup,CN=Schema,CN=Configuration,\${domain_top_dn}
+		instanceType: 4
+		attributeID: 1.3.6.1.4.1.15953.9.1.7
+		attributeSyntax: 2.5.5.5
+		isSingleValued: FALSE
+		showInAdvancedViewOnly: TRUE
+		adminDisplayName: sudoRunAsGroup
+		adminDescription: Groups(s) impersonated by sudo
+		oMSyntax: 22
+		lDAPDisplayName: sudoRunAsGroup
+		name: sudoRunAsGroup
+		schemaIDGUID:: xJhSt/Yd3RGJPTB1VtiVkw==
+		objectCategory: CN=Attribute-Schema,CN=Schema,CN=Configuration,\${domain_top_dn}
+		
+		dn: CN=sudoNotBefore,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: attributeSchema
+		cn: sudoNotBefore
+		distinguishedName: CN=sudoNotBefore,CN=Schema,CN=Configuration,\${domain_top_dn}
+		instanceType: 4
+		attributeID: 1.3.6.1.4.1.15953.9.1.8
+		attributeSyntax: 2.5.5.11
+		isSingleValued: TRUE
+		showInAdvancedViewOnly: TRUE
+		adminDisplayName: sudoNotBefore
+		adminDescription: Start of time interval for which the entry is valid
+		oMSyntax: 24
+		lDAPDisplayName:  sudoNotBefore
+		name: sudoNotBefore
+		schemaIDGUID:: dm1HnRfY4RGf4gopYYhwmw==
+		objectCategory: CN=Attribute-Schema,CN=Schema,CN=Configuration,\${domain_top_dn}
+		
+		dn: CN=sudoNotAfter,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: attributeSchema
+		cn: sudoNotAfter
+		distinguishedName: CN=sudoNotAfter,CN=Schema,CN=Configuration,\${domain_top_dn}
+		instanceType: 4
+		attributeID: 1.3.6.1.4.1.15953.9.1.9
+		attributeSyntax: 2.5.5.11
+		isSingleValued: TRUE
+		showInAdvancedViewOnly: TRUE
+		adminDisplayName: sudoNotAfter
+		adminDescription: End of time interval for which the entry is valid
+		oMSyntax: 24
+		lDAPDisplayName:  sudoNotAfter
+		name: sudoNotAfter
+		schemaIDGUID:: OAr/pBfY4RG9dBIpYYhwmw==
+		objectCategory: CN=Attribute-Schema,CN=Schema,CN=Configuration,\${domain_top_dn}
+		
+		dn: CN=sudoOrder,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: attributeSchema
+		cn: sudoOrder
+		distinguishedName: CN=sudoOrder,CN=Schema,CN=Configuration,\${domain_top_dn}
+		instanceType: 4
+		attributeID: 1.3.6.1.4.1.15953.9.1.10
+		attributeSyntax: 2.5.5.9
+		isSingleValued: TRUE
+		showInAdvancedViewOnly: TRUE
+		adminDisplayName: sudoOrder
+		adminDescription: an integer to order the sudoRole entries
+		oMSyntax: 2
+		lDAPDisplayName:  sudoOrder
+		name: sudoOrder
+		schemaIDGUID:: 0J8yrRfY4RGIYBUpYYhwmw==
+		objectCategory: CN=Attribute-Schema,CN=Schema,CN=Configuration,\${domain_top_dn}
+		EOM
+		cat <<- EOM > /etc/samba/sudo_classes.ldif
+		dn: CN=sudoRole,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: classSchema
+		cn: sudoRole
+		distinguishedName: CN=sudoRole,CN=Schema,CN=Configuration,\${domain_top_dn}
+		instanceType: 4
+		possSuperiors: container
+		possSuperiors: top
+		subClassOf: top
+		governsID: 1.3.6.1.4.1.15953.9.2.1
+		mayContain: sudoCommand
+		mayContain: sudoHost
+		mayContain: sudoOption
+		mayContain: sudoRunAs
+		mayContain: sudoRunAsUser
+		mayContain: sudoRunAsGroup
+		mayContain: sudoUser
+		mayContain: sudoNotBefore
+		mayContain: sudoNotAfter
+		mayContain: sudoOrder
+		rDNAttID: cn
+		showInAdvancedViewOnly: FALSE
+		adminDisplayName: sudoRole
+		adminDescription: Sudoer Entries
+		objectClassCategory: 1
+		lDAPDisplayName: sudoRole
+		name: sudoRole
+		schemaIDGUID:: SQn432lnZ0+ukbdh3+gN3w==
+		systemOnly: FALSE
+		objectCategory: CN=Class-Schema,CN=Schema,CN=Configuration,\${domain_top_dn}
+		defaultObjectCategory: CN=sudoRole,CN=Schema,CN=Configuration,\${domain_top_dn}
+		EOM
+		ldbmodify -H /var/lib/samba/private/sam.ldb /etc/samba/sudo_attrs.ldif --option="dsdb:schema update allowed"=true
+		ldbmodify -H /var/lib/samba/private/sam.ldb /etc/samba/sudo_classes.ldif --option="dsdb:schema update allowed"=true
 	fi
 	# Enable and start Samba AD DC
 	systemctl --now enable samba-ad-dc
+	# Reset sysvol ACLs 
+	# Note: needs samba running - adding a sleep to be safe
+	sleep 30
+	samba-tool ntacl sysvolreset
 	# Restart NTPd
 	systemctl restart ntpd
 	if [ "${domain_join}" != "true" ]; then
@@ -1104,7 +1480,7 @@ cat << EOF >> rc.samba-dc
 		# TODO: find a proper idmapping parameter for SSSD too
 		# TODO: find a general way to define uid/gid values
 		# TODO: GPO files inside sysvol have an unmapped ownership with a strange uid, eg: 3000004 - find out why and correct - may be unneeded: sysvol files ownership should not matter (they seem to be for uids/gids not registered in AD on purpose)
-		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${netbios_domain_name}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password='${root_password}'
+		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password='${root_password}'
 		# Add newly created user to the "Unix Admins" group
 		samba-tool group addmembers "Unix Admins" "${winadmin_username}"
 		# Note: do not add gidNumber 10000 to "Domain Admins" - it seems that having a gidNumber may interfer with sysvol files ownership - https://www.spinics.net/lists/samba/msg143752.html
@@ -1118,6 +1494,7 @@ cat << EOF >> rc.samba-dc
 		# TODO: Add uidNumber 10000 and gidNumber 10001 to "administrator"
 		# TODO: verify whether this too may impact sysvol files ownership - https://www.spinics.net/lists/samba/msg143752.html
 		# TODO: on the other side the current default of 0 may be improper: https://bugzilla.samba.org/show_bug.cgi?id=9837
+		# TODO: actually it seems that a proper setup maps (by means of smbusers map) local BUILTIN Administrator to root while the domain one should not matter
 		#cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
 		#\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "administrator" | awk '{print \$1}') | grep '^dn:')
 		#changetype: modify
@@ -1126,6 +1503,129 @@ cat << EOF >> rc.samba-dc
 		#add: gidNumber
 		#gidNumber: 10001
 		#EOM
+		# Load automounter maps for HVP default NFS shares
+		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		dn: ou=automount,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: organizationalUnit
+		description: Toplevel container for Unix automounter maps
+		ou: automount
+		name: automount
+		
+		dn: ou=auto.master,ou=automount,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: organizationalUnit
+		objectClass: automountMap
+		ou: auto.master
+		name: auto.master
+		automountMapName: auto.master
+		
+		dn: cn=/-,ou=auto.master,ou=automount,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: automount
+		objectClass: container
+		cn: /-
+		name: /-
+		automountKey: /-
+		automountInformation: auto.direct
+		
+		dn: ou=auto.direct,ou=automount,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: organizationalUnit
+		objectClass: automountMap
+		ou: auto.direct
+		name: auto.direct
+		automountMapName: auto.direct
+		
+		dn: cn=/home/${ad_subdomain_prefix}.${domain_name[${my_zone}]},ou=auto.direct,ou=automount,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: automount
+		objectClass: container
+		cn: /home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}
+		name: /home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}
+		automountKey: /home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}
+		automountInformation: -fstype=nfs,rw ${storage_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]}:/${gluster_vol_name['unixshare']}/homes
+		
+		dn: cn=/home/groups,ou=auto.direct,ou=automount,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: automount
+		objectClass: container
+		cn: /home/groups
+		name: /home/groups
+		automountKey: /home/groups
+		automountInformation: -fstype=nfs,rw ${storage_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]}:/${gluster_vol_name['unixshare']}/groups
+		
+		dn: cn=/usr/local/software,ou=auto.direct,ou=automount,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: automount
+		objectClass: container
+		cn: /usr/local/software
+		name: /usr/local/software
+		automountKey: /usr/local/software
+		automountInformation: -fstype=nfs,ro ${storage_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]}:/${gluster_vol_name['unixshare']}/software
+		EOM
+		# Load sudo rules for HVP default groups
+		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		dn: ou=sudoers,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: organizationalUnit
+		description: Toplevel container for Unix sudo rules
+		ou: sudoers
+		name: sudoers
+		
+		dn: CN=default,OU=sudoers,\${domain_top_dn}
+		objectClass: top
+		objectClass: sudoRole
+		cn: default
+		name: default
+		sudoOption: !authenticate;env_keep+=SSH_AUTH_SOCK
+		
+		dn: CN=unixadminsrule,OU=sudoers,\${domain_top_dn}
+		objectClass: top
+		objectClass: sudoRole
+		cn: unixadminsrule
+		name: unixadminsrule
+		sudoOrder: 1
+		sudoHost: ALL
+		sudoCommand: ALL
+		sudoRunAsUser: root
+		sudoUser: %"Unix Admins"
+		EOM
+		# Create default OUs for HVP servers
+		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		dn: ou=DB Servers,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: organizationalUnit
+		description: Container for database servers
+		ou: DB Servers
+		name: DB Servers
+		
+		dn: ou=Print Servers,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: organizationalUnit
+		description: Container for printer servers
+		ou: Print Servers
+		name: Print Servers
+		
+		dn: ou=Remote Desktop Servers,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: organizationalUnit
+		description: Container for remote desktop servers
+		ou: Remote Desktop Servers
+		name: Remote Desktop Servers
+		EOM
+		
 		# Prepare an idmap-db cold backup for further DCs (to keep BUILTIN ids aligned)
 		tdbbackup -s .bak /var/lib/samba/private/idmap.ldb
 		mkdir -p /var/lib/samba/sysvolrepl
@@ -1191,7 +1691,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018030701"
+script_version="2018042701"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1233,17 +1733,27 @@ cat /etc/resolv.conf >> /tmp/post.out
 echo "POST hosts" >> /tmp/post.out
 cat /etc/hosts >> /tmp/post.out
 
+# Hardcoded defaults
+
+unset network
+unset netmask
+unset network_base
+unset mtu
+unset domain_name
+unset reverse_domain_name
+unset test_ip
+unset multi_instance_max
+unset nicmacfix
+
 # Define associative arrays
 declare -A network netmask network_base mtu
 declare -A domain_name
 declare -A reverse_domain_name
 declare -A test_ip
 
-# Hardcoded defaults
-
-unset nicmacfix
-
 nicmacfix="false"
+
+multi_instance_max="9"
 
 # Load configuration parameters files (generated in pre section above)
 ks_custom_frags="hvp_parameters.sh hvp_parameters_dc.sh hvp_parameters_*:*.sh"
@@ -1268,6 +1778,12 @@ if grep -w -q 'hvp_nicmacfix' /proc/cmdline ; then
 	nicmacfix="true"
 fi
 
+# Determine multi-instance limit
+given_multi_instance_max=$(sed -n -e 's/^.*hvp_maxinstances=\(\S*\).*$/\1/p' /proc/cmdline)
+if echo "${given_multi_instance_max}" | grep -q '^[[:digit:]]\+$' ; then
+	multi_instance_max="${given_multi_instance_max}"
+fi
+
 # Create /dev/root symlink for grubby (must differentiate for use of LVM or MD based "/")
 # TODO: Open a Bugzilla notification
 # TODO: remove when grubby gets fixed
@@ -1286,7 +1802,8 @@ ln -sf $rootdisk /dev/root
 yum-config-manager --enable cr > /dev/null
 
 # Add HVP custom repo
-yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-2.noarch.rpm
+yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-3.noarch.rpm
+yum-config-manager --enable hvp-samba-dc > /dev/null
 
 # Add upstream repository definitions
 yum -y install http://packages.psychotic.ninja/6/base/i386/RPMS/psychotic-release-1.0.0-1.el6.psychotic.noarch.rpm
@@ -1358,7 +1875,7 @@ yum -y install webalizer mrtg net-snmp net-snmp-utils
 yum -y install webmin
 
 # Install custom Samba packages with AD DC support from HVP own repo and related utilities
-yum -y --enablerepo hvp-samba-dc install samba-dc samba-common-tools samba-client samba-winbind-clients rsync krb5-workstation openldap-clients cyrus-sasl-gssapi
+yum -y install samba-dc samba-common-tools samba-client samba-winbind-clients rsync krb5-workstation openldap-clients cyrus-sasl-gssapi
 
 # Install Bareos client (file daemon + console)
 # TODO: using HVP repo to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
@@ -1408,7 +1925,6 @@ for repofile in /etc/yum.repos.d/*.repo; do
 	fi
 done
 # Modify baseurl definitions to allow effective use of our proxy cache
-sed -i -e 's>http://apt\.sw\.be/redhat/el7/en/>http://ftp.fi.muni.cz/pub/linux/repoforge/redhat/el7/en/>g' /etc/yum.repos.d/rpmforge.repo
 sed -i -e 's>http://download.fedoraproject.org/pub/epel/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/7/>g' /etc/yum.repos.d/epel.repo
 sed -i -e 's>http://download.fedoraproject.org/pub/epel/testing/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/testing/7/>g' /etc/yum.repos.d/epel-testing.repo
 
@@ -1517,7 +2033,7 @@ if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parall
 	vm.dirty_expire_centisecs = 500
 	vm.dirty_writeback_centisecs = 100
 	vm.swappiness = 30
-	kernel.sched_migration_cost = 5000000
+	kernel.sched_migration_cost_ns = 5000000
 	EOF
 	chmod 644 /etc/sysctl.d/virtualguest.conf
 fi
@@ -1613,7 +2129,7 @@ firewall-offline-cmd --add-service=ntp
 systemctl enable ntpd
 
 # Configure Samba AD DC
-# Note: initial domain provisioning preformed by script created in pre section above and copied in third post section below
+# Note: initial domain provisioning performed by script created in pre section above and copied in third post section below
 # TODO: current Samba Fedora packaging lacks a systemd unit for Samba AD DC - creating one here - remove when added upstream
 cat << EOF > /etc/systemd/system/samba-ad-dc.service
 [Unit]
@@ -1662,8 +2178,8 @@ systemctl disable samba-ad-dc
 # Note: Configured TCP wrappers allow file in pre above and copied in second post below
 echo "ALL: ALL" >> /etc/hosts.deny
 
-# Configure SSH (show legal banner, no root login with password, limit authentication tries, no DNS tracing of incoming connections)
-sed -i -e 's/^#\s*PermitRootLogin.*$/PermitRootLogin without-password/' -e 's/^#\s*MaxAuthTries.*$/MaxAuthTries 3/' -e 's/^#\s*UseDNS.*$/UseDNS no/' -e 's%^#\s*Banner.*$%Banner /etc/issue.net%' /etc/ssh/sshd_config
+# Configure SSH (show legal banner, limit authentication tries, no DNS tracing of incoming connections)
+sed -i -e 's/^#\s*MaxAuthTries.*$/MaxAuthTries 3/' -e 's/^#\s*UseDNS.*$/UseDNS no/' -e 's%^#\s*Banner.*$%Banner /etc/issue.net%' /etc/ssh/sshd_config
 # Force security-conscious length of host keys by pre-creating them here
 # Note: ED25519 keys have a fixed length so they are not created here
 # Note: using haveged to ensure enough entropy (but rngd could be already running from installation environment)
@@ -2054,6 +2570,30 @@ fi
 
 # TODO: Configure Bareos
 
+# Create HVP standard directory for machine-specific application dumps
+mkdir -p /var/local/backup
+chown root:root /var/local/backup
+chmod 750 /var/local/backup
+
+# Create HVP standard script for machine-specific application dumps
+cat << EOF > /usr/local/sbin/dump2backup
+#!/bin/bash
+# Dump Samba AD DC server state to be picked up by standard filesystem backup
+prefix="\$(hostname)-\$(date '+%Y-%m-%d_%H-%M-%S')"
+content="samba-domaincontroller-backup"
+find /var/lib/samba -type f -iname '*.tdb' -exec tdbbackup -s .bak '{}' ';' > /var/local/backup/\${prefix}-\${content}.log 2>&1
+tar -czf /var/local/backup/\${prefix}-\${content}.tar.gz /var/lib/samba >> /var/local/backup/\${prefix}-\${content}.log 2>&1
+res=\$?
+if [ \${res} -ne 0 ]; then
+	# In case of errors, do not remove anything and return error code upstream
+	exit \${res}
+fi
+# Keep only the last two dumps and logs
+find /var/local/backup -type f -printf '%T@\t%p\\0' | sort -z -nrk1 | sed -z -n -e '5,\$s/^\\S*\\s*//p' | xargs -0 rm -f --
+EOF
+chown root:root /usr/local/sbin/dump2backup
+chmod 750 /usr/local/sbin/dump2backup
+
 # TODO: Enable Bareos
 systemctl disable bareos-fd
 
@@ -2087,6 +2627,48 @@ $(date '+%Y/%m/%d')
 *) installed $(lsb_release -i -r -s) $(uname -m) from kickstart
 
 EOF
+
+# Allow first boot configuration through SELinux
+# Note: obtained by means of: cat /var/log/audit/audit.log | audit2allow -M myks1stboot
+# TODO: remove when SELinux policy fixed upstream
+mkdir -p /etc/selinux/local
+cat << EOF > /etc/selinux/local/myks1stboot.te
+
+module myks1stboot 3.0;
+
+require {
+	type sendmail_t;
+	type postfix_master_t;
+	type admin_home_t;
+	type setfiles_t;
+	type ifconfig_t;
+	type initrc_t;
+	type systemd_hostnamed_t;
+	class dbus send_msg;
+	class file { getattr write };
+}
+
+#============= ifconfig_t ==============
+allow ifconfig_t admin_home_t:file write;
+
+#============= sendmail_t ==============
+allow sendmail_t admin_home_t:file write;
+
+#============= postfix_master_t ==============
+allow postfix_master_t admin_home_t:file { getattr write };
+
+#============= setfiles_t ==============
+allow setfiles_t admin_home_t:file write;
+
+#============= systemd_hostnamed_t ==============
+allow systemd_hostnamed_t initrc_t:dbus send_msg;
+EOF
+chmod 644 /etc/selinux/local/myks1stboot.te
+
+pushd /etc/selinux/local
+checkmodule -M -m -o myks1stboot.mod myks1stboot.te
+semodule_package -o myks1stboot.pp -m myks1stboot.mod
+semodule -i myks1stboot.pp
 
 # Set up "first-boot" configuration script (steps that require a fully up system)
 cat << EOF > /etc/rc.d/rc.ks1stboot
@@ -2196,6 +2778,34 @@ cat << EOF >> /etc/rc.d/rc.ks1stboot
 # Run dynamically determined users configuration actions
 if [ -x /etc/rc.d/rc.users-setup ]; then
 	/etc/rc.d/rc.users-setup
+fi
+
+# Check/modify hostname for uniqueness
+main_interface=\$(ip route show | awk '/^default/ {print \$5}')
+main_ip=\$(ip address show dev \${main_interface} primary | awk '/inet[[:space:]]/ {print \$2}' | cut -d/ -f1)
+current_name=\$(hostname -s)
+target_domain=\$(hostname -d)
+multi_instance_max="${multi_instance_max}"
+check_ip="\$(dig \${current_name}.\${target_domain} A +short)"
+# Check whether name resolves and does not match with IP address
+if [ -n "\${check_ip}" -a "\${check_ip}" != "\${main_ip}" ]; then
+	# Name does not match: modify (starting from suffix 2) and resolve it till it is either unknown or matching with configured IP
+	tentative_name_found="false"
+	for ((name_increment=2;name_increment<=\${multi_instance_max}+1;name_increment=name_increment+1)); do
+		tentative_name="\${current_name}\${name_increment}"
+		check_ip="\$(dig \${tentative_name}.\${target_domain} A +short)"
+		if [ -z "\${check_ip}" -o "\${check_ip}" = "\${main_ip}" ]; then
+			tentative_name_found="true"
+			break
+		fi
+	done
+	if [ "\${tentative_name_found}" = "true" ]; then
+		# Enact new hostname
+		hostnamectl set-hostname \${tentative_name}.\${target_domain}
+		# Modify already saved entries
+		# Note: names on secondary zones are kept aligned
+		sed -i -e "s/\\b\${current_name}\\b/\${tentative_name}/g" /etc/hosts
+	fi
 fi
 
 # Run Samba AD DC domain provisioning actions
