@@ -16,6 +16,7 @@
 # Note: to force custom IPs add hvp_{mgmt,lan}_my_ip=t.t.t.t where t.t.t.t is the chosen IP on the given network
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
 # Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
+# Note: to force custom multi-instance limit for each vm type (kickstart) add hvp_maxinstances=A where A is the maximum number of instances
 # Note: to force custom AD subdomain naming add hvp_ad_subdomainname=myprefix where myprefix is the subdomain name
 # Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an AD domain) or "false" (do not join an AD domain)
 # Note: to force custom nameserver IP add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
@@ -23,6 +24,7 @@
 # Note: to force custom root password add hvp_rootpwd=mysecret where mysecret is the root user password
 # Note: to force custom admin username add hvp_adminname=myadmin where myadmin is the admin username
 # Note: to force custom admin password add hvp_adminpwd=myothersecret where myothersecret is the admin user password
+# Note: to force custom email address for notification receiver add hvp_receiver_email=name@domain where name@domain is the email address
 # Note: to force custom AD further admin username add hvp_winadminname=mywinadmin where mywinadmin is the further AD admin username
 # Note: to force custom AD further admin password add hvp_winadminpwd=mywinothersecret where mywinothersecret is the further AD admin user password
 # Note: to force custom keyboard layout add hvp_kblayout=cc where cc is the country code
@@ -31,8 +33,9 @@
 # Note: the default host naming uses the "My Little Pony" character name rainbowdash
 # Note: the default addressing on connected networks is assumed to be 172.20.{10,12}.0/24 on {mgmt,lan}
 # Note: the default MTU is assumed to be 1500 on {mgmt,lan}
-# Note: the default machine IPs are assumed to be the 250th IPs available (network address + 250) on each connected network
+# Note: the default machine IPs are assumed to be the 190th IPs available (network address + 190) on each connected network
 # Note: the default domain names are assumed to be {mgmt,lan}.private
+# Note: the default multi-instance limit is assumed to be 9
 # Note: the default AD subdomain name is assumed to be ad
 # Note: the default domain action is "false" (do not join an AD domain)
 # Note: the default nameserver IP is assumed to be 8.8.8.8
@@ -40,6 +43,7 @@
 # Note: the default root user password is HVP_dem0
 # Note: the default admin username is hvpadmin
 # Note: the default admin user password is HVP_dem0
+# Note: the default notification email address for receiver is monitoring@localhost
 # Note: the default AD further admin username is the same as the admin username with the string "ad" prefixed
 # Note: the default AD further admin user password is HVP_dem0
 # Note: the default keyboard layout is us
@@ -213,6 +217,7 @@ unset netmask
 unset network_base
 unset mtu
 unset domain_name
+unset multi_instance_max
 unset ad_subdomain_prefix
 unset domain_join
 unset reverse_domain_name
@@ -225,6 +230,7 @@ unset my_gateway
 unset root_password
 unset admin_username
 unset admin_password
+unset notification_receiver
 unset winadmin_username
 unset winadmin_password
 unset keyboard_layout
@@ -240,7 +246,9 @@ nicmacfix="false"
 # Note: the following can be overridden from commandline
 test_ip_offset="1"
 
-my_ip_offset="250"
+my_ip_offset="190"
+
+multi_instance_max="9"
 
 declare -A network netmask network_base mtu
 network['mgmt']="172.20.10.0"
@@ -251,10 +259,15 @@ network['lan']="172.20.12.0"
 netmask['lan']="255.255.255.0"
 network_base['lan']="172.20.12"
 mtu['lan']="1500"
+network['internal']="172.20.13.0"
+netmask['internal']="255.255.255.0"
+network_base['internal']="172.20.13"
+mtu['internal']="1500"
 
 declare -A domain_name
 domain_name['mgmt']="mgmt.private"
 domain_name['lan']="lan.private"
+domain_name['internal']="internal.private"
 
 ad_subdomain_prefix="ad"
 
@@ -263,6 +276,7 @@ domain_join="false"
 declare -A reverse_domain_name
 reverse_domain_name['mgmt']="10.20.172.in-addr.arpa"
 reverse_domain_name['lan']="12.20.172.in-addr.arpa"
+reverse_domain_name['internal']="13.20.172.in-addr.arpa"
 
 declare -A test_ip
 # Note: default values for test_ip derived below - defined here to allow loading as configuration parameters
@@ -278,6 +292,8 @@ admin_password="HVP_dem0"
 winadmin_password="HVP_dem0"
 keyboard_layout="us"
 local_timezone="UTC"
+
+notification_receiver="monitoring@localhost"
 
 # Detect any configuration fragments and load them into the pre environment
 # Note: BIOS based devices, file and DHCP methods are unsupported
@@ -451,6 +467,12 @@ if [ -n "${given_winadmin_password}" ]; then
 	winadmin_password="${given_winadmin_password}"
 fi
 
+# Determine notification receiver email address
+given_receiver_email=$(sed -n -e "s/^.*hvp_receiver_email=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_receiver_email}" ]; then
+	notification_receiver="${given_receiver_email}"
+fi
+
 # Determine keyboard layout
 given_keyboard_layout=$(sed -n -e "s/^.*hvp_kblayout=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_keyboard_layout}" ]; then
@@ -473,6 +495,12 @@ fi
 given_hostname=$(sed -n -e 's/^.*hvp_myname=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_hostname}" | grep -q '^[[:alnum:]]\+$' ; then
 	my_name="${given_hostname}"
+fi
+
+# Determine multi-instance limit
+given_multi_instance_max=$(sed -n -e 's/^.*hvp_maxinstances=\(\S*\).*$/\1/p' /proc/cmdline)
+if echo "${given_multi_instance_max}" | grep -q '^[[:digit:]]\+$' ; then
+	multi_instance_max="${given_multi_instance_max}"
 fi
 
 # Determine AD subdomain name
@@ -560,13 +588,15 @@ fi
 # Disable any interface configured by NetworkManager
 # Note: NetworkManager may interfer with interface assignment autodetection logic below
 # Note: interfaces will be explicitly activated again by our dynamically created network configuration fragment
-for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|lo|sit[0-9])$' | sort); do
-	if nmcli device show "${nic_name}" | grep -q '^GENERAL.STATE:.*(connected)' ; then
-		nmcli device disconnect "${nic_name}"
-		nmcli connection delete "${nic_name}"
-		ip addr flush dev "${nic_name}"
-		ip link set mtu 1500 dev "${nic_name}"
+for device_name in $(nmcli -t device show | awk -F: '/^GENERAL\.DEVICE:/ {print $2}' | egrep -v '^(bonding_masters|lo|sit[0-9])$' | sort); do
+	if nmcli -t device show "${device_name}" | grep -q '^GENERAL\.STATE:.*(connected)' ; then
+		nmcli device disconnect "${device_name}"
+		ip addr flush dev "${device_name}"
+		ip link set mtu 1500 dev "${device_name}"
 	fi
+done
+for connection_name in $(nmcli -t connection show | awk -F: '{print $1}' | sort); do
+	nmcli connection delete "${connection_name}"
 done
 
 # Determine network interface assignment
@@ -590,9 +620,24 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			fi
 			unset PREFIX
 			eval $(ipcalc -s -p "${network[${zone}]}" "${netmask[${zone}]}")
-			ip addr add "${my_ip[${zone}]}/${PREFIX}" dev "${nic_name}"
+			# Perform duplicate IP detection and increment IP till it is unique
+			tentative_ip_found="false"
+			for ((ip_increment=0;ip_increment<=${multi_instance_max};ip_increment=ip_increment+1)); do
+				tentative_ip=$(ipmat ${my_ip[${zone}]} ${ip_increment} +)
+				if arping -q -c 2 -w 3 -D -I ${nic_name} ${tentative_ip} ; then
+					# No collision detected: try to use this IP address
+					tentative_ip_found="true"
+					break
+				fi
+			done
+			if [ "${tentative_ip_found}" = "false" ]; then
+				# All IP addresses already taken - skip
+				continue
+			fi
+			ip addr add "${tentative_ip}/${PREFIX}" dev "${nic_name}"
 			res=$?
 			if [ ${res} -ne 0 ] ; then
+				# There has been a problem in assigning the IP address - skip
 				ip addr flush dev "${nic_name}"
 				ip link set mtu 1500 dev "${nic_name}"
 				continue
@@ -603,6 +648,11 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			if ping -c 3 -w 8 -i 2 "${test_ip[${zone}]}" > /dev/null 2>&1 ; then
 				nics["${zone}"]="${nics[${zone}]} ${nic_name}"
 				nic_assigned='true'
+				# Note: we keep IP addresses aligned on all zones
+				# Note: IP/name coherence check and correction demanded to post-install rc.ks1stboot script
+				for zone_to_align in "${!network[@]}" ; do
+					my_ip[${zone_to_align}]=$(ipmat ${my_ip[${zone_to_align}]} ${ip_increment} +)
+				done
 				ip addr flush dev "${nic_name}"
 				ip link set mtu 1500 dev "${nic_name}"
 				break
@@ -611,16 +661,14 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 			ip link set mtu 1500 dev "${nic_name}"
 		done
 		if [ "${nic_assigned}" = "false" ]; then
+			# Disable unassignable nics
 			nics['unused']="${nics['unused']} ${nic_name}"
 		fi
 	else
+		# Disable unconnected nics
 		nics['unused']="${nics['unused']} ${nic_name}"
 	fi
 done
-
-# TODO: Perform nic connections consistency check
-# Note: with one network it must be mgmt
-# Note: with two networks they must be mgmt and lan
 
 # Remove my_ip/test_ip, network/netmask/network_base/mtu and domain_name/reverse_domain_name entries for non-existent networks
 for zone in "${!network[@]}" ; do
@@ -635,6 +683,9 @@ for zone in "${!network[@]}" ; do
 		unset reverse_domain_name[${zone}]
 	fi
 done
+
+# TODO: Perform nic connections consistency check
+# TODO: either offer service on all networks or keep mgmt as trusted if there is at least another one
 
 # Determine network segment identity and parameters
 if [ -n "${nics['lan']}" ]; then
@@ -672,9 +723,14 @@ for zone in "${!network[@]}" ; do
 		fi
 		# Add hostname option on the lan zone only (or on mgmt if there is only one network)
 		if [ "${zone}" = "${my_zone}" ]; then
-			further_options="${further_options} --hostname=${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]}"
+			if [ "${domain_join}" = "true" ]; then
+				further_options="${further_options} --hostname=${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]}"
+			else
+				further_options="${further_options} --hostname=${my_name}.${domain_name[${zone}]}"
+			fi
 		fi
 		# Single (plain) interface
+		# TODO: support multiple interfaces per zone (mainly for the physical machine case) - introduce bondopts for each zone
 		cat <<- EOF >> /tmp/full-network
 		network --device=${nic_names} --activate --onboot=yes --bootproto=static --ip=${my_ip[${zone}]} --netmask=${netmask[${zone}]} --mtu=${mtu[${zone}]} ${further_options}
 		EOF
@@ -707,18 +763,26 @@ mkdir -p /tmp/hvp-users-conf
 cat << EOF > /tmp/hvp-users-conf/rc.users-setup
 #!/bin/bash
 
-# Configure SSH (allow only listed users)
-sed -i -e "/^PermitRootLogin/s/\\\$/\\\\nAllowUsers root ${admin_username}/" /etc/ssh/sshd_config
+# Note: if not joined to AD then administrative access is only local
+if [ "${domain_join}" != "true" ]; then
+	# Configure SSH (allow only listed users)
+	sed -i -e "/^PermitRootLogin/s/\\\$/\\\\nAllowUsers root ${admin_username}/" /etc/ssh/sshd_config
+fi
 
-# Configure email aliases (divert root email to administrative account)
+# Configure email aliases
+# Divert root email to administrative account
 sed -i -e "s/^#\\\\s*root.*\\\$/root:\\\\t\\\\t${admin_username}/" /etc/aliases
-cat << EOM >> /etc/aliases
-
-# Email alias for server monitoring
-monitoring:	${admin_username}
-
-EOM
-newaliases
+# Divert local notification emails to administrative account
+if echo "${notification_receiver}" | grep -q '@localhost\$' ; then
+	alias=\$(echo "${notification_receiver}" | sed -e 's/@localhost\$//')
+	cat <<- EOM >> /etc/aliases
+	
+	# Email alias for server monitoring
+	\${alias}:	${admin_username}
+	
+	EOM
+	newaliases
+fi
 EOF
 
 # Create localization setup fragment
@@ -847,9 +911,15 @@ cat << EOF > hosts
 EOF
 for zone in "${!network[@]}" ; do
 	if [ "${zone}" = "${my_zone}" ]; then
-		cat <<- EOF >> hosts
-		${my_ip[${zone}]}		${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}
-		EOF
+		if [ "${domain_join}" = "true" ]; then
+			cat <<- EOF >> hosts
+			${my_ip[${zone}]}		${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}
+			EOF
+		else
+			cat <<- EOF >> hosts
+			${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]} ${my_name}
+			EOF
+		fi
 	else
 		cat <<- EOF >> hosts
 		${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]}
@@ -859,6 +929,7 @@ done
 popd
 
 # Prepare TCP wrappers custom lines to be appended later on
+# TODO: either offer service on all networks or keep mgmt as trusted if there is at least another one
 mkdir -p /tmp/hvp-tcp_wrappers-conf
 allowed_addr="127.0.0.1"
 if [ -n "${nics['lan']}" ]; then
@@ -907,15 +978,38 @@ if [ "${domain_join}" = "true" ]; then
 	else
 	    klist
 	    # Note: we force use of Winbind here since we will need to enable Samba for printer sharing
-	    realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) --automatic-id-mapping=no --client-software=winbind ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
-	    kdestroy
+	    realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) --computer-ou=OU="Print Servers" --automatic-id-mapping=no --client-software=winbind ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
 	    # TODO: default realmd-generated Winbind configuration is invalid (Winbind dies immediately) - modifying it - remove when fixed upstream
 	    netbios_domain=\$(awk '/^[[:space:]]*workgroup[[:space:]]*=/ {print \$3}' /etc/samba/smb.conf)
 	    sed -i -e '/^\\s*idmap\\s/d' /etc/samba/smb.conf
 	    sed -i -e "/^\\\\s*realm\\\\s/s/\\\$/\\nidmap config * : backend = autorid\\nidmap config * : range = 2000000000-3999999999\\nidmap config * : rangesize = 1000000\\nidmap config \${netbios_domain} : backend = ad\\nidmap config \${netbios_domain} : range = 9999-1999999999\\nidmap config \${netbios_domain} : schema_mode = rfc2307\\nidmap config \${netbios_domain} : unix_nss_info = yes\\nwinbind nested groups = yes\\nwinbind expand groups = 2/" /etc/samba/smb.conf
 	    sed -i -e '/\\s*kerberos\\s*method\\s*=/s>=.*\$>= secrets and keytab\\ndedicated keytab file = /etc/krb5.keytab>' /etc/samba/smb.conf
 	    sed -i -e '/^shadow:/s/\\s*winbind//g' /etc/nsswitch.conf
+	    # Create Samba domain-based user-mapping configuration file
+	    cat <<- EOM > /etc/samba/smbusers
+	    # Unix_name = SMB_name1 SMB_name2 ...
+	    # The following seems to be needed to avoid errors granting privilegs as per https://wiki.samba.org/index.php/Samba_Member_Server_Troubleshooting
+	    !root = \${netbios_domain}\\Administrator \${netbios_domain}\\administrator
+	    EOM
+	    # Add further Kerberos SPNs
+	    net ads keytab add HTTP -k
+	    kdestroy
+	    # TODO: Limit access from AD accounts using GPOs
+	    # TODO: GPOs must be created to limit access
+	    # TODO: using groups to limit access - remove when GPO limits get implemented upstream
+	    sed -i -e "/^\\\\[global\\\\]/,/^\\\\[.*\\\\]/s/^[;#]*\\\\s*require_membership_of\\\\s*=.*\\\$/require_membership_of = \${netbios_domain}\\\\Unix Admins/" /etc/security/pam_winbind.conf
+	    # TODO: find a way to configure sudo for AD-integrated LDAP rules using Winbind
+	    # TODO: using local sudo rules as a workaround
+	    cat <<- EOM >> /etc/sudoers
+	    
+	    %"\${netbios_domain}\\Unix Admins"	ALL=(ALL)	NOPASSWD: ALL
+	    EOM
 	    systemctl restart winbind
+	    # Configure SSH server and client for Kerberos SSO
+	    # TODO: verify auth_to_local mapping rules in /etc/krb5.conf
+	    sed -i -e 's/^#GSSAPIKeyExchange\\s.*\$/GSSAPIKeyExchange yes\\nGSSAPIStoreCredentialsOnRekey yes/' /etc/ssh/sshd_config
+	    sed -i -e 's/^\\(\\s*\\)\\(GSSAPIAuthentication\\s*yes\\).*\$/\\1\\2\\n\\1GSSAPIDelegateCredentials yes\\n\\1GSSAPIKeyExchange yes\\n\\1GSSAPIRenewalForcesRekey yes/' /etc/ssh/ssh_config
+	    systemctl restart sshd
 	fi
 	EOF
 	popd
@@ -928,11 +1022,20 @@ cat << EOF > rc.pr-provision
 #!/bin/bash
 EOF
 if [ "${domain_join}" = "true" ]; then
+	# Domain join procedure above already creates a base Samba configuration
 	cat <<- EOF >> rc.pr-provision
 	# Disable home directories sharing
-	sed -i -e '/^\\[homes\\]/s/\$/\\navailable = no/' -e '/^\\[global\\]/s/\$/\\nserver string = Enterprise Print Server/' /etc/samba/smb.conf
+	sed -i -e '/^\\[homes\\]/s/\$/\\navailable = no/' -e '/^\\[global\\]/s/\$/\\nserver string = Enterprise Print Server\\nrpc_server:spoolss = external\\nrpc_daemon:spoolssd = fork/' /etc/samba/smb.conf
 	EOF
+	# Set proper permissions on drivers folders
+	# Note: privileges to manage print queues are granted to "Domain Admins" as part of the domain setup procedure
+	netbios_domain=\$(awk '/^[[:space:]]*workgroup[[:space:]]*=/ {print \$3}' /etc/samba/smb.conf)
+	chgrp -R '${netbios_domain}\\Domain Admins' /var/lib/samba/drivers
+	chmod -R 2775 /var/lib/samba/drivers
+	# Configure CUPS for Kerberos auth
+	cupsctl DefaultAuthType=Negotiate
 else
+	# Create a base Samba configuration
 	cat <<- EOF >> rc.pr-provision
 	# No need for Winbind
 	systemctl --now disable winbind
@@ -949,19 +1052,18 @@ else
 	   load printers = yes
 	   printing = cups
 	   disable spoolss = no
+	   rpc_server:spoolss = external
+	   rpc_daemon:spoolssd = fork
 	   show add printer wizard = yes
 	   cups options = raw
 	
 	   map to guest = Bad user
 	   username map = /etc/samba/smbusers
-	   store dos attributes = no
-	   map acl inherit = no
+	   vfs objects = acl_xattr
+	   store dos attributes = yes
+	   map acl inherit = yes
 	   dos filemode = no
 	   dos filetime resolution = yes
-	   create mask = 0664
-	   force create mode = 440
-	   directory mask = 6775
-	   force directory mode = 550
 	   unix extensions = no
 	   hide special files = yes
 	   dead time = 15
@@ -987,15 +1089,12 @@ else
 	   comment = All Printers
 	   path = /var/tmp
 	   printable = Yes
-	   create mask = 0600
 	   browseable = No
 	
 	[print\\\$]
 	   comment = Printer Drivers
 	   path = /var/lib/samba/drivers
 	   write list = root
-	   create mask = 0664
-	   directory mask = 0775
 	
 	EOM
 	EOF
@@ -1004,6 +1103,10 @@ cat << EOF >> rc.pr-provision
 # Enable and start Samba services
 systemctl --now enable nmb
 systemctl --now enable smb
+if [ "${domain_join}" = "true" ]; then
+	# Grant proper privileges for Print Server management to Domain Admins
+	net sam rights grant "\${netbios_domain}\\Domain Admins" SePrintOperatorPrivilege -U "\${netbios_domain}\\administrator%${root_password}"
+fi
 EOF
 popd
 
@@ -1030,7 +1133,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018030701"
+script_version="2018042701"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1072,17 +1175,27 @@ cat /etc/resolv.conf >> /tmp/post.out
 echo "POST hosts" >> /tmp/post.out
 cat /etc/hosts >> /tmp/post.out
 
+# Hardcoded defaults
+
+unset network
+unset netmask
+unset network_base
+unset mtu
+unset domain_name
+unset reverse_domain_name
+unset test_ip
+unset multi_instance_max
+unset nicmacfix
+
 # Define associative arrays
 declare -A network netmask network_base mtu
 declare -A domain_name
 declare -A reverse_domain_name
 declare -A test_ip
 
-# Hardcoded defaults
-
-unset nicmacfix
-
 nicmacfix="false"
+
+multi_instance_max="9"
 
 # Load configuration parameters files (generated in pre section above)
 ks_custom_frags="hvp_parameters.sh hvp_parameters_pr.sh hvp_parameters_*:*.sh"
@@ -1107,6 +1220,12 @@ if grep -w -q 'hvp_nicmacfix' /proc/cmdline ; then
 	nicmacfix="true"
 fi
 
+# Determine multi-instance limit
+given_multi_instance_max=$(sed -n -e 's/^.*hvp_maxinstances=\(\S*\).*$/\1/p' /proc/cmdline)
+if echo "${given_multi_instance_max}" | grep -q '^[[:digit:]]\+$' ; then
+	multi_instance_max="${given_multi_instance_max}"
+fi
+
 # Create /dev/root symlink for grubby (must differentiate for use of LVM or MD based "/")
 # TODO: Open a Bugzilla notification
 # TODO: remove when grubby gets fixed
@@ -1125,7 +1244,7 @@ ln -sf $rootdisk /dev/root
 yum-config-manager --enable cr > /dev/null
 
 # Add HVP custom repo
-yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-2.noarch.rpm
+yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-3.noarch.rpm
 
 # Add upstream repository definitions
 yum -y install http://packages.psychotic.ninja/6/base/i386/RPMS/psychotic-release-1.0.0-1.el6.psychotic.noarch.rpm
@@ -1200,7 +1319,7 @@ yum -y install webmin
 yum -y install sssd-ad realmd adcli krb5-workstation samba-common
 
 # Install printing-related packages
-yum -y install samba samba-client samba-common-tools samba-winbind{,-{clients,krb5-locator,modules}} @print-client @print-server
+yum -y install samba samba-client samba-common-tools tdb-tools samba-winbind{,-{clients,krb5-locator,modules}} samba-krb5-printing @print-client @print-server
 
 # Install Bareos client (file daemon + console)
 # TODO: using HVP repo to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
@@ -1250,7 +1369,6 @@ for repofile in /etc/yum.repos.d/*.repo; do
 	fi
 done
 # Modify baseurl definitions to allow effective use of our proxy cache
-sed -i -e 's>http://apt\.sw\.be/redhat/el7/en/>http://ftp.fi.muni.cz/pub/linux/repoforge/redhat/el7/en/>g' /etc/yum.repos.d/rpmforge.repo
 sed -i -e 's>http://download.fedoraproject.org/pub/epel/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/7/>g' /etc/yum.repos.d/epel.repo
 sed -i -e 's>http://download.fedoraproject.org/pub/epel/testing/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/testing/7/>g' /etc/yum.repos.d/epel-testing.repo
 
@@ -1359,7 +1477,7 @@ if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parall
 	vm.dirty_expire_centisecs = 500
 	vm.dirty_writeback_centisecs = 100
 	vm.swappiness = 30
-	kernel.sched_migration_cost = 5000000
+	kernel.sched_migration_cost_ns = 5000000
 	EOF
 	chmod 644 /etc/sysctl.d/virtualguest.conf
 fi
@@ -1443,8 +1561,8 @@ systemctl enable chronyd
 # Note: Configured TCP wrappers allow file in pre above and copied in second post below
 echo "ALL: ALL" >> /etc/hosts.deny
 
-# Configure SSH (show legal banner, no root login with password, limit authentication tries, no DNS tracing of incoming connections)
-sed -i -e 's/^#\s*PermitRootLogin.*$/PermitRootLogin without-password/' -e 's/^#\s*MaxAuthTries.*$/MaxAuthTries 3/' -e 's/^#\s*UseDNS.*$/UseDNS no/' -e 's%^#\s*Banner.*$%Banner /etc/issue.net%' /etc/ssh/sshd_config
+# Configure SSH (show legal banner, limit authentication tries, no DNS tracing of incoming connections)
+sed -i -e 's/^#\s*MaxAuthTries.*$/MaxAuthTries 3/' -e 's/^#\s*UseDNS.*$/UseDNS no/' -e 's%^#\s*Banner.*$%Banner /etc/issue.net%' /etc/ssh/sshd_config
 # Force security-conscious length of host keys by pre-creating them here
 # Note: ED25519 keys have a fixed length so they are not created here
 # Note: using haveged to ensure enough entropy (but rngd could be already running from installation environment)
@@ -1735,7 +1853,7 @@ firewall-offline-cmd --add-service=http
 systemctl enable httpd
 
 # Configure CUPS (allow remote browsing and administration)
-# TODO: Configure Kerberos/AD auth for CUPS
+# Note: Kerberos/AD auth for CUPS configured in domain-join script
 sed -i -e 's/^\(Listen\s*localhost:631.*\)$/#\1\nPort 631\nBrowseAddress @LOCAL/' -e 's/^\(\s*\)\(Order\s*allow,deny.*\)$/\1\2\n\1Allow @LOCAL/' /etc/cups/cupsd.conf
 
 # Add "/printsys/" location with forced redirect to port 631 in Apache configuration
@@ -1881,6 +1999,30 @@ fi
 
 # TODO: Configure Bareos
 
+# Create HVP standard directory for machine-specific application dumps
+mkdir -p /var/local/backup
+chown root:root /var/local/backup
+chmod 750 /var/local/backup
+
+# Create HVP standard script for machine-specific application dumps
+cat << EOF > /usr/local/sbin/dump2backup
+#!/bin/bash
+# Dump Samba print server state to be picked up by standard filesystem backup
+prefix="\$(hostname)-\$(date '+%Y-%m-%d_%H-%M-%S')"
+content="samba-printserver-backup"
+find /var/lib/samba -type f -iname '*.tdb' -exec tdbbackup -s .bak '{}' ';' > /var/local/backup/\${prefix}-\${content}.log 2>&1
+tar -czf /var/local/backup/\${prefix}-\${content}.tar.gz /var/lib/samba >> /var/local/backup/\${prefix}-\${content}.log 2>&1
+res=\$?
+if [ \${res} -ne 0 ]; then
+	# In case of errors, do not remove anything and return error code upstream
+	exit \${res}
+fi
+# Keep only the last two dumps and logs
+find /var/local/backup -type f -printf '%T@\\t%p\\0' | sort -z -nrk1 | sed -z -n -e '5,\$s/^\\S*\\s*//p' | xargs -0 rm -f --
+EOF
+chown root:root /usr/local/sbin/dump2backup
+chmod 750 /usr/local/sbin/dump2backup
+
 # TODO: Enable Bareos
 systemctl disable bareos-fd
 
@@ -1914,6 +2056,48 @@ $(date '+%Y/%m/%d')
 *) installed $(lsb_release -i -r -s) $(uname -m) from kickstart
 
 EOF
+
+# Allow first boot configuration through SELinux
+# Note: obtained by means of: cat /var/log/audit/audit.log | audit2allow -M myks1stboot
+# TODO: remove when SELinux policy fixed upstream
+mkdir -p /etc/selinux/local
+cat << EOF > /etc/selinux/local/myks1stboot.te
+
+module myks1stboot 3.0;
+
+require {
+	type sendmail_t;
+	type postfix_master_t;
+	type admin_home_t;
+	type setfiles_t;
+	type ifconfig_t;
+	type initrc_t;
+	type systemd_hostnamed_t;
+	class dbus send_msg;
+	class file { getattr write };
+}
+
+#============= ifconfig_t ==============
+allow ifconfig_t admin_home_t:file write;
+
+#============= sendmail_t ==============
+allow sendmail_t admin_home_t:file write;
+
+#============= postfix_master_t ==============
+allow postfix_master_t admin_home_t:file { getattr write };
+
+#============= setfiles_t ==============
+allow setfiles_t admin_home_t:file write;
+
+#============= systemd_hostnamed_t ==============
+allow systemd_hostnamed_t initrc_t:dbus send_msg;
+EOF
+chmod 644 /etc/selinux/local/myks1stboot.te
+
+pushd /etc/selinux/local
+checkmodule -M -m -o myks1stboot.mod myks1stboot.te
+semodule_package -o myks1stboot.pp -m myks1stboot.mod
+semodule -i myks1stboot.pp
 
 # Set up "first-boot" configuration script (steps that require a fully up system)
 cat << EOF > /etc/rc.d/rc.ks1stboot
@@ -2023,6 +2207,34 @@ cat << EOF >> /etc/rc.d/rc.ks1stboot
 # Run dynamically determined users configuration actions
 if [ -x /etc/rc.d/rc.users-setup ]; then
 	/etc/rc.d/rc.users-setup
+fi
+
+# Check/modify hostname for uniqueness
+main_interface=\$(ip route show | awk '/^default/ {print \$5}')
+main_ip=\$(ip address show dev \${main_interface} primary | awk '/inet[[:space:]]/ {print \$2}' | cut -d/ -f1)
+current_name=\$(hostname -s)
+target_domain=\$(hostname -d)
+multi_instance_max="${multi_instance_max}"
+check_ip="\$(dig \${current_name}.\${target_domain} A +short)"
+# Check whether name resolves and does not match with IP address
+if [ -n "\${check_ip}" -a "\${check_ip}" != "\${main_ip}" ]; then
+	# Name does not match: modify (starting from suffix 2) and resolve it till it is either unknown or matching with configured IP
+	tentative_name_found="false"
+	for ((name_increment=2;name_increment<=\${multi_instance_max}+1;name_increment=name_increment+1)); do
+		tentative_name="\${current_name}\${name_increment}"
+		check_ip="\$(dig \${tentative_name}.\${target_domain} A +short)"
+		if [ -z "\${check_ip}" -o "\${check_ip}" = "\${main_ip}" ]; then
+			tentative_name_found="true"
+			break
+		fi
+	done
+	if [ "\${tentative_name_found}" = "true" ]; then
+		# Enact new hostname
+		hostnamectl set-hostname \${tentative_name}.\${target_domain}
+		# Modify already saved entries
+		# Note: names on secondary zones are kept aligned
+		sed -i -e "s/\\b\${current_name}\\b/\${tentative_name}/g" /etc/hosts
+	fi
 fi
 
 # Run AD domain joining script
