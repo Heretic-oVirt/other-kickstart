@@ -1,16 +1,26 @@
-# Preconfigured defaults for virtual desktop installation
+# Preconfigured defaults for remote desktop server installation
 # Note: the following are all the modifiable parameters for reference only (values are equal to hardcoded defaults)
 
 nicmacfix="false"
 
+db_name="bigmcintosh"
+
+web_name="cheerilee"
+
 detype="gnome"
+dedbtype="sqlite"
+
+ad_dc_name="spike"
 
 # Note: for the following values, either the IPs or the offset is enough, but we will list here both as an example
 test_ip_offset="1"
 test_ip['mgmt']="172.20.10.1"
 test_ip['lan']="172.20.12.1"
+test_ip['internal']="172.20.13.1"
 
 my_ip_offset="240"
+
+multi_instance_max="9"
 
 # Note: network_base values are derived automatically anyway
 network['mgmt']="172.20.10.0"
@@ -19,10 +29,14 @@ mtu['mgmt']="1500"
 network['lan']="172.20.12.0"
 netmask['lan']="255.255.255.0"
 mtu['lan']="1500"
+network['internal']="172.20.13.0"
+netmask['internal']="255.255.255.0"
+mtu['internal']="1500"
 
 # Note: reverse_domain_name values are derived automatically anyway
 domain_name['mgmt']="mgmt.private"
 domain_name['lan']="lan.private"
+domain_name['internal']="internal.private"
 
 ad_subdomain_prefix="ad"
 
@@ -41,3 +55,5 @@ admin_password="HVP_dem0"
 winadmin_password="HVP_dem0"
 keyboard_layout="us"
 local_timezone="UTC"
+
+notification_receiver="monitoring@localhost"
