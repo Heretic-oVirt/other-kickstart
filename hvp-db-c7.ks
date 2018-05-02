@@ -803,6 +803,8 @@ cat << EOF > /tmp/hvp-users-conf/rc.users-setup
 if [ "${domain_join}" != "true" ]; then
 	# Configure SSH (allow only listed users)
 	sed -i -e "/^PermitRootLogin/s/\\\$/\\\\nAllowUsers root ${admin_username}/" /etc/ssh/sshd_config
+	# Add user to wheel group to allow liberal use of sudo
+	usermod -a -G wheel ${admin_username}
 fi
 
 # Configure email aliases
@@ -1225,7 +1227,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018042701"
+script_version="2018050101"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1280,6 +1282,7 @@ unset multi_instance_max
 unset nicmacfix
 unset dbtype
 unset dbversion
+unset notification_receiver
 
 # Define associative arrays
 declare -A network netmask network_base mtu
@@ -1293,6 +1296,8 @@ multi_instance_max="9"
 
 dbtype="postgresql"
 dbversion="9.6"
+
+notification_receiver="monitoring@localhost"
 
 # Load configuration parameters files (generated in pre section above)
 ks_custom_frags="hvp_parameters.sh hvp_parameters_db.sh hvp_parameters_*:*.sh"
@@ -1354,6 +1359,12 @@ if [ -z "${dbversion}" -o "${dbtype}" != "postgresql" -a "${dbversion}" = "9.6" 
 			dbversion="2017.CU"
 			;;
 	esac
+fi
+
+# Determine notification receiver email address
+given_receiver_email=$(sed -n -e "s/^.*hvp_receiver_email=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_receiver_email}" ]; then
+	notification_receiver="${given_receiver_email}"
 fi
 
 # Create /dev/root symlink for grubby (must differentiate for use of LVM or MD based "/")
@@ -1446,7 +1457,7 @@ yum -y install webalizer mrtg net-snmp net-snmp-utils
 yum -y install webmin
 
 # Install needed packages to join AD domain
-yum -y install sssd-ad realmd adcli krb5-workstation samba-common sssd-tools
+yum -y install sssd-ad realmd adcli krb5-workstation samba-common sssd-tools ldb-tools tdb-tools
 
 # Install database packages
 case "${dbtype}" in
@@ -1623,13 +1634,25 @@ else
 	grub2_cfg_file="/etc/grub2.cfg"
 fi
 
-# Setup a serial terminal
-sed -i -e '/^GRUB_CMDLINE_LINUX/s/quiet/quiet console=tty0 console=ttyS0,115200n8/' /etc/default/grub
-cat << EOF >> /etc/default/grub
-GRUB_TERMINAL="console serial"
-GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"
-EOF
-grub2-mkconfig -o "${grub2_cfg_file}"
+# TODO: Setup a serial terminal
+# TODO: find a way to detect serial port use by other software (like ovirt-guest-agent) and skip for console
+#serial_found="false"
+#for link in /sys/class/tty/*/device/driver ; do
+#	if stat -c '%N' ${link} | grep -q 'serial' ; then
+#		if [ -n "$(setserial -g -b  /dev/$(echo ${link} | sed -e 's%^.*/tty/\([^/]*\)/.*$%\1%'))" ]; then
+#			serial_found="true"
+#			break
+#		fi
+#	fi
+#done
+#if [ "${serial_found}" = "true" ]; then
+#	sed -i -e '/^GRUB_CMDLINE_LINUX/s/quiet/quiet console=tty0 console=ttyS0,115200n8/' /etc/default/grub
+#	cat <<- EOF >> /etc/default/grub
+#	GRUB_TERMINAL="console serial"
+#	GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"
+#	EOF
+#	grub2-mkconfig -o "${grub2_cfg_file}"
+#fi
 
 # Configure GRUB2 boot loader (no splash screen, no Plymouth, show menu, wait 5 seconds for manual override)
 # Note: alternatively, Plymouth may be instructed to use detailed listing with: plymouth-set-default-theme -R details
@@ -1881,6 +1904,18 @@ chmod 644 /etc/{issue*,motd}
 #EOF
 #chmod 644 /etc/rsyslog.d/centralized.conf
 
+# Configure Logcheck
+sed -i -e "/^SENDMAILTO=/s/logcheck/${notification_receiver}/" /etc/logcheck/logcheck.conf
+for rule in kernel systemd; do
+	ln -s ../ignore.d.server/${rule} /etc/logcheck/violations.ignore.d/
+fi
+
+# TODO: reconfigure syslog files for Logcheck as per https://bugzilla.redhat.com/show_bug.cgi?id=1062147 - remove when fixed upstream
+sed -i -e 's/^\(\s*\)\(missingok.*\)$/\1\2\n\1create 0640 root adm/' /etc/logrotate.d/syslog
+touch /var/log/{messages,secure,cron,maillog,spooler}
+chown root:adm /var/log/{messages,secure,cron,maillog,spooler}
+chmod 640 /var/log/{messages,secure,cron,maillog,spooler}
+
 # Configure ABRTd
 # Allow reports for signed packages from 3rd-party repos by adding their keys under /etc/pki/rpm-gpg/
 for repokeyurl in $(grep -h '^gpgkey' /etc/yum.repos.d/*.repo | grep -v 'file:///' | sed -e 's/^gpgkey\s*=\s*//' -e 's/\s*$//' -e 's/\$releasever/'$(rpm -q --queryformat '%{version}\n' centos-release)'/g' | sort | uniq); do
@@ -2076,6 +2111,7 @@ EOF
 chmod 644 /var/www/html/index.html
 
 # Configure Webalizer (allow access from everywhere)
+# Note: webalizer initialization demanded to post-install rc.ks1stboot script
 sed -i -e 's/^\(\s*\)\(Require local.*\)$/\1Require all granted/' /etc/httpd/conf.d/webalizer.conf
 
 # Enable Webalizer
@@ -2180,6 +2216,13 @@ chmod 644 /etc/firewalld/services/webmin.xml
 # Enable Webmin
 firewall-offline-cmd --add-service=webmin
 systemctl enable webmin
+
+# TODO: Debug - enable verbose logging in firewalld - maybe disable for production use?
+firewall-offline-cmd --set-log-denied=all
+
+# TODO: it seems that a Postfix error gets regularly logged because of this missing pipe - remove when fixed upstream
+mkfifo /var/spool/postfix/public/pickup
+chown postfix:postdrop /var/spool/postfix/public/pickup
 
 # Conditionally enable MCE logging/management service
 if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
@@ -2657,6 +2700,11 @@ elif dmidecode -s system-manufacturer | grep -q "oVirt" ; then
 fi
 popd
 # Note: CentOS 7 persistent net device naming means that MAC addresses are not statically registered by default anymore
+
+# Initialize webalizer
+# Note: Apache logs must be not empty
+wget -O /dev/null http://localhost/
+/etc/cron.daily/00webalizer
 
 # Initialize MRTG configuration (needs Net-SNMP up)
 # TODO: add CPU/RAM/disk/etc. resource monitoring
