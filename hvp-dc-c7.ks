@@ -1604,6 +1604,14 @@ cat << EOF >> rc.samba-dc
 		samba-tool dsacl set -H /var/lib/samba/private/sam.ldb --objectdn="OU=sudoers,\${domain_top_dn}" --sddl="(A;CI;RPLCRC;;;DC)"
 		# Create default OUs for HVP servers
 		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		dn: ou=File Servers,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: organizationalUnit
+		description: Container for file servers
+		ou: File Servers
+		name: File Servers
+		
 		dn: ou=DB Servers,\${domain_top_dn}
 		changetype: add
 		objectClass: top
@@ -1718,7 +1726,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018050101"
+script_version="2018060601"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
