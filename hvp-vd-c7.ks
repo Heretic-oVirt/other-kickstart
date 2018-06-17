@@ -1187,7 +1187,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018050101"
+script_version="2018061401"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1398,9 +1398,12 @@ grubby --set-default=/boot/vmlinuz-$(rpm -q --last kernel | head -1 | cut -f 1 -
 # Note: even in presence of an actual/virtualized hardware random number generator (managed by rngd) we install haveged as a safety measure
 yum -y install haveged
 
-# Conditionally install Memtest86+
+# Conditionally install memory test software
 if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
-	yum -y install memtest86+
+	# Note: open source memtest86+ does not support UEFI
+	if [ ! -d /sys/firmware/efi ]; then
+		yum -y install memtest86+
+	fi
 fi
 
 # Install YUM-cron, YUM-plugin-ps, Gdisk, PWGen, HPing, 7Zip, UnRAR and ARJ
@@ -1564,8 +1567,11 @@ dracut -f /boot/initramfs-$(uname -r).img $(uname -r)
 
 # Conditionally add memory test entry to boot loader
 if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
-	memtest-setup
-	grub2-mkconfig -o "${grub2_cfg_file}"
+	# Note: open source memtest86+ does not support UEFI
+	if [ ! -d /sys/firmware/efi ]; then
+		memtest-setup
+		grub2-mkconfig -o "${grub2_cfg_file}"
+	fi
 fi
 
 # Configure kernel I/O scheduler policy for a virtual machine
@@ -2120,9 +2126,8 @@ systemctl enable webmin
 # Enable verbose logging in firewalld
 firewall-offline-cmd --set-log-denied=all
 
-# TODO: it seems that a Postfix error gets regularly logged because of this missing pipe - remove when fixed upstream
-mkfifo /var/spool/postfix/public/pickup
-chown postfix:postdrop /var/spool/postfix/public/pickup
+# Enable Postfix
+systemctl enable postfix
 
 # Define GNOME3 global settings (mandatory/defaults)
 # Note: schema inspected on a live GNOME session using "gsettings list-recursively"
