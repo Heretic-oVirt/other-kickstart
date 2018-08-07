@@ -624,11 +624,11 @@ fi
 # Disable any interface configured by NetworkManager
 # Note: NetworkManager may interfer with interface assignment autodetection logic below
 # Note: interfaces will be explicitly activated again by our dynamically created network configuration fragment
-for device_name in $(nmcli -t device show | awk -F: '/^GENERAL\.DEVICE:/ {print $2}' | egrep -v '^(bonding_masters|lo|sit[0-9])$' | sort); do
-	if nmcli -t device show "${device_name}" | grep -q '^GENERAL\.STATE:.*(connected)' ; then
-		nmcli device disconnect "${device_name}"
-		ip addr flush dev "${device_name}"
-		ip link set mtu 1500 dev "${device_name}"
+for nic_device_name in $(nmcli -t device show | awk -F: '/^GENERAL\.DEVICE:/ {print $2}' | egrep -v '^(bonding_masters|lo|sit[0-9])$' | sort); do
+	if nmcli -t device show "${nic_device_name}" | grep -q '^GENERAL\.STATE:.*(connected)' ; then
+		nmcli device disconnect "${nic_device_name}"
+		ip addr flush dev "${nic_device_name}"
+		ip link set mtu 1500 dev "${nic_device_name}"
 	fi
 done
 for connection_name in $(nmcli -t connection show | awk -F: '{print $1}' | sort); do
@@ -838,25 +838,25 @@ EOF
 # TODO: find a better way to detect emulated/VirtIO devices
 all_devices="$(list-harddrives | egrep -v '^(fd|sr)[[:digit:]]*[[:space:]]' | awk '{print $1}' | sort)"
 if [ -b /dev/vda ]; then
-	device_name="vda"
+	disk_device_name="vda"
 elif [ -b /dev/xvda ]; then
-	device_name="xvda"
+	disk_device_name="xvda"
 else
-	device_name="sda"
+	disk_device_name="sda"
 fi
 cat << EOF > /tmp/full-disk
 # Simple disk configuration: single SCSI/SATA/VirtIO disk
 # Initialize partition table (GPT) on selected disk
-clearpart --drives=${device_name} --all --initlabel --disklabel=gpt
+clearpart --drives=${disk_device_name} --all --initlabel --disklabel=gpt
 # Bootloader placed on MBR, with 3 seconds waiting and with password protection
-bootloader --location=mbr --timeout=3 --password=${root_password} --boot-drive=${device_name} --driveorder=${device_name} --append="nomodeset"
+bootloader --location=mbr --timeout=3 --password=${root_password} --boot-drive=${disk_device_name} --driveorder=${disk_device_name} --append="nomodeset"
 # Ignore further disk - maybe USB key!!!
-ignoredisk --only-use=${device_name}
+ignoredisk --only-use=${disk_device_name}
 # Automatically create UEFI or BIOS boot partition depending on hardware capabilities
 reqpart --add-boot
 # Simple partitioning: single root and swap
-part swap --fstype swap --recommended --ondisk=${device_name} --asprimary
-part / --fstype xfs --size=100 --grow --ondisk=${device_name} --asprimary
+part swap --fstype swap --recommended --ondisk=${disk_device_name} --asprimary
+part / --fstype xfs --size=100 --grow --ondisk=${disk_device_name} --asprimary
 EOF
 # Clean up disks from any previous LVM setup
 # Note: it seems that simply zeroing out below is not enough
@@ -1227,7 +1227,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018061401"
+script_version="2018080301"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1456,8 +1456,13 @@ yum -y install httpd mod_ssl
 # Install Webalizer and MRTG
 yum -y install webalizer mrtg net-snmp net-snmp-utils
 
+# Install Logcheck
+yum -y install logcheck
+
 # Install Webmin
 yum -y install webmin
+# Note: immediately stop webmin started by postinst scriptlet
+/etc/init.d/webmin stop
 
 # Install needed packages to join AD domain
 yum -y install sssd-ad realmd adcli krb5-workstation samba-common sssd-tools ldb-tools tdb-tools
@@ -1914,7 +1919,7 @@ chmod 644 /etc/{issue*,motd}
 sed -i -e "/^SENDMAILTO=/s/logcheck/${notification_receiver}/" /etc/logcheck/logcheck.conf
 for rule in kernel systemd; do
 	ln -s ../ignore.d.server/${rule} /etc/logcheck/violations.ignore.d/
-fi
+done
 
 # TODO: reconfigure syslog files for Logcheck as per https://bugzilla.redhat.com/show_bug.cgi?id=1062147 - remove when fixed upstream
 sed -i -e 's/^\(\s*\)\(missingok.*\)$/\1\2\n\1create 0640 root adm/' /etc/logrotate.d/syslog
