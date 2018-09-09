@@ -693,7 +693,7 @@ elif [ -n "${nics['internal']}" ]; then
 	my_zone="internal"
 fi
 if [ -z "${my_gateway}" ]; then
-	my_gateway="${test_ip['mgmt']}"
+	my_gateway="${test_ip[${my_zone}]}"
 fi
 
 # Create network setup fragment
@@ -1137,7 +1137,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018090901"
+script_version="2018090902"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
