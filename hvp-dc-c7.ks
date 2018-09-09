@@ -665,9 +665,6 @@ for zone in "${!network[@]}" ; do
 		network_base["${zone}"]=$(echo ${NETWORK} | awk -F. 'BEGIN {OFS="."}; {print $1}')
 	fi
 done
-if [ -z "${my_gateway}" ]; then
-	my_gateway="${test_ip['mgmt']}"
-fi
 
 # Disable any interface configured by NetworkManager
 # Note: NetworkManager may interfer with interface assignment autodetection logic below
@@ -772,10 +769,15 @@ done
 # TODO: either offer service on all networks or keep mgmt as trusted if there is at least another one
 
 # Determine network segment identity and parameters
-if [ -n "${nics['lan']}" ]; then
-	my_zone="lan"
-else
+if [ -n "${nics['mgmt']}" ]; then
 	my_zone="mgmt"
+elif [ -n "${nics['lan']}" ]; then
+	my_zone="lan"
+elif [ -n "${nics['internal']}" ]; then
+	my_zone="internal"
+fi
+if [ -z "${my_gateway}" ]; then
+	my_gateway="${test_ip[${my_zone}]}"
 fi
 
 # Define default NetBIOS domain name if not specified
@@ -786,7 +788,7 @@ fi
 # Create network setup fragment
 # Note: dynamically created here to make use of full autodiscovery above
 # Note: defining statically configured access to autodetected networks
-# Note: listing interfaces using reverse alphabetical order for networks (results in: mgmt, lan, gluster)
+# Note: listing interfaces using reverse alphabetical order for networks (results in: mgmt, lan, internal)
 # TODO: Anaconda/NetworkManager do not add DEFROUTE="no" and MTU="xxxx" parameters - adding workarounds here - remove when fixed upstream
 mkdir -p /tmp/hvp-networkmanager-conf
 pushd /tmp/hvp-networkmanager-conf
@@ -1726,7 +1728,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018080301"
+script_version="2018090901"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
