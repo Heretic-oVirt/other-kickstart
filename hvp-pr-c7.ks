@@ -956,15 +956,15 @@ if [ "${domain_join}" = "true" ]; then
 	# Setup krb5.conf properly
 	sed -i -e "s/^\\\\(\\\\s*\\\\)\\\\(dns_lookup_realm\\\\s*=.*\\\\)\\$/\\\\1\\\\2\n\\\\1dns_lookup_kdc = true\\\\n\\\\1default_realm = ${realm_name}/" /etc/krb5.conf
 	# Perform Kerberos authentication to allow unattended join below
-	cat <<- EOM | expect -f -
+	cat << EOM | expect -f -
 	set force_conservative 1
 	
 	if {\\\$force_conservative} {
-		set send_slow {1 .1}
-		proc send {ignore arg} {
-			sleep .1
-			exp_send -s -- \\\$arg
-		}
+	  set send_slow {1 .1}
+	  proc send {ignore arg} {
+	    sleep .1
+	    exp_send -s -- \\\$arg
+	  }
 	}
 	
 	set timeout -1
@@ -976,44 +976,46 @@ if [ "${domain_join}" = "true" ]; then
 	EOM
 	res=\$?
 	if [ \${res} -ne 0 ]; then
-	    # Report script ending
-	    logger -s -p "local7.err" -t "rc.domain-join" "Exiting join (failed Kerberos authentication with join credentials)"
-	    exit \${res}
+	        # Report script ending
+	        logger -s -p "local7.err" -t "rc.domain-join" "Exiting join (failed Kerberos authentication with join credentials)"
+	        exit \${res}
 	else
-	    klist
-	    # Note: we force use of Winbind here since we will need to enable Samba for printer sharing
-	    realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) --computer-ou=OU="Print Servers" --automatic-id-mapping=no --client-software=winbind ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
-	    # TODO: default realmd-generated Winbind configuration is invalid (Winbind dies immediately) - modifying it - remove when fixed upstream
-	    netbios_domain=\$(awk '/^[[:space:]]*workgroup[[:space:]]*=/ {print \$3}' /etc/samba/smb.conf)
-	    sed -i -e '/^\\s*idmap\\s/d' /etc/samba/smb.conf
-	    sed -i -e "/^\\\\s*realm\\\\s/s/\\\$/\\nidmap config * : backend = autorid\\nidmap config * : range = 2000000000-3999999999\\nidmap config * : rangesize = 1000000\\nidmap config \${netbios_domain} : backend = ad\\nidmap config \${netbios_domain} : range = 9999-1999999999\\nidmap config \${netbios_domain} : schema_mode = rfc2307\\nidmap config \${netbios_domain} : unix_nss_info = yes\\nwinbind nested groups = yes\\nwinbind expand groups = 2/" /etc/samba/smb.conf
-	    sed -i -e '/\\s*kerberos\\s*method\\s*=/s>=.*\$>= secrets and keytab\\ndedicated keytab file = /etc/krb5.keytab>' /etc/samba/smb.conf
-	    sed -i -e '/^shadow:/s/\\s*winbind//g' /etc/nsswitch.conf
-	    # Create Samba domain-based user-mapping configuration file
-	    cat <<- EOM > /etc/samba/smbusers
-	    # Unix_name = SMB_name1 SMB_name2 ...
-	    # The following seems to be needed to avoid errors granting privilegs as per https://wiki.samba.org/index.php/Samba_Member_Server_Troubleshooting
-	    !root = \${netbios_domain}\\Administrator \${netbios_domain}\\administrator
-	    EOM
-	    # Add further Kerberos SPNs
-	    net ads keytab add HTTP -k
-	    kdestroy
-	    # TODO: Limit access from AD accounts using GPOs
-	    # TODO: GPOs must be created to limit access
-	    # TODO: using groups to limit access - remove when GPO limits get implemented upstream
-	    sed -i -e "/^\\\\[global\\\\]/,/^\\\\[.*\\\\]/s/^[;#]*\\\\s*require_membership_of\\\\s*=.*\\\$/require_membership_of = \${netbios_domain}\\\\Unix Admins/" /etc/security/pam_winbind.conf
-	    # TODO: find a way to configure sudo for AD-integrated LDAP rules using Winbind
-	    # TODO: using local sudo rules as a workaround
-	    cat <<- EOM >> /etc/sudoers
-	    
-	    %"\${netbios_domain}\\Unix Admins"	ALL=(ALL)	NOPASSWD: ALL
-	    EOM
-	    systemctl restart winbind
-	    # Configure SSH server and client for Kerberos SSO
-	    # TODO: verify auth_to_local mapping rules in /etc/krb5.conf
-	    sed -i -e 's/^#GSSAPIKeyExchange\\s.*\$/GSSAPIKeyExchange yes\\nGSSAPIStoreCredentialsOnRekey yes/' /etc/ssh/sshd_config
-	    sed -i -e 's/^\\(\\s*\\)\\(GSSAPIAuthentication\\s*yes\\).*\$/\\1\\2\\n\\1GSSAPIDelegateCredentials yes\\n\\1GSSAPIKeyExchange yes\\n\\1GSSAPIRenewalForcesRekey yes/' /etc/ssh/ssh_config
-	    systemctl restart sshd
+	        klist
+	        # Note: we force use of Winbind here since we will need to enable Samba for printer sharing
+	        realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) --computer-ou=OU="Print Servers" --automatic-id-mapping=no --client-software=winbind ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
+	        # TODO: default realmd-generated Winbind configuration is invalid (Winbind dies immediately) - modifying it - remove when fixed upstream
+	        netbios_domain=\$(awk '/^[[:space:]]*workgroup[[:space:]]*=/ {print \$3}' /etc/samba/smb.conf)
+	        sed -i -e '/^\\s*idmap\\s/d' /etc/samba/smb.conf
+	        sed -i -e "/^\\\\s*realm\\\\s/s/\\\$/\\nidmap config * : backend = autorid\\nidmap config * : range = 2000000000-3999999999\\nidmap config * : rangesize = 1000000\\nidmap config \${netbios_domain} : backend = ad\\nidmap config \${netbios_domain} : range = 9999-1999999999\\nidmap config \${netbios_domain} : schema_mode = rfc2307\\nidmap config \${netbios_domain} : unix_nss_info = yes\\nwinbind nested groups = yes\\nwinbind expand groups = 2/" /etc/samba/smb.conf
+	        sed -i -e '/\\s*kerberos\\s*method\\s*=/s>=.*\$>= secrets and keytab\\ndedicated keytab file = /etc/krb5.keytab>' /etc/samba/smb.conf
+	        sed -i -e '/^shadow:/s/\\s*winbind//g' /etc/nsswitch.conf
+	        # Create Samba domain-based user-mapping configuration file
+		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+		cat << EOM > /etc/samba/smbusers
+		# Unix_name = SMB_name1 SMB_name2 ...
+		# The following seems to be needed to avoid errors granting privilegs as per https://wiki.samba.org/index.php/Samba_Member_Server_Troubleshooting
+		!root = \${netbios_domain}\\Administrator \${netbios_domain}\\administrator
+		EOM
+	        # Add further Kerberos SPNs
+	        net ads keytab add HTTP -k
+	        kdestroy
+	        # TODO: Limit access from AD accounts using GPOs
+	        # TODO: GPOs must be created to limit access
+	        # TODO: using groups to limit access - remove when GPO limits get implemented upstream
+	        sed -i -e "/^\\\\[global\\\\]/,/^\\\\[.*\\\\]/s/^[;#]*\\\\s*require_membership_of\\\\s*=.*\\\$/require_membership_of = \${netbios_domain}\\\\Unix Admins/" /etc/security/pam_winbind.conf
+	        # TODO: find a way to configure sudo for AD-integrated LDAP rules using Winbind
+	        # TODO: using local sudo rules as a workaround
+		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+		cat << EOM >> /etc/sudoers
+		
+		%"\${netbios_domain}\\Unix Admins"	ALL=(ALL)	NOPASSWD: ALL
+		EOM
+	        systemctl restart winbind
+	        # Configure SSH server and client for Kerberos SSO
+	        # TODO: verify auth_to_local mapping rules in /etc/krb5.conf
+	        sed -i -e 's/^#GSSAPIKeyExchange\\s.*\$/GSSAPIKeyExchange yes\\nGSSAPIStoreCredentialsOnRekey yes/' /etc/ssh/sshd_config
+	        sed -i -e 's/^\\(\\s*\\)\\(GSSAPIAuthentication\\s*yes\\).*\$/\\1\\2\\n\\1GSSAPIDelegateCredentials yes\\n\\1GSSAPIKeyExchange yes\\n\\1GSSAPIRenewalForcesRekey yes/' /etc/ssh/ssh_config
+	        systemctl restart sshd
 	fi
 	EOF
 	popd
@@ -1137,7 +1139,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018090903"
+script_version="2018091101"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
