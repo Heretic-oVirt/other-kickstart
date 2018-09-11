@@ -1104,7 +1104,7 @@ if [ "${domain_join}" = "true" ]; then
 		EOM
 	        sed -i -e '/services/s/\$/, sudo/' /etc/sssd/sssd.conf
 		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
-		cat <<- EOM >> /etc/sssd/sssd.conf
+		cat << EOM >> /etc/sssd/sssd.conf
 		sudo_provider = ad
 		EOM
 	        systemctl restart sssd
@@ -1194,7 +1194,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018091101"
+script_version="2018091102"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
