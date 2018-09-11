@@ -992,15 +992,15 @@ if [ "${domain_join}" = "true" ]; then
 	# Setup krb5.conf properly
 	sed -i -e "s/^\\\\(\\\\s*\\\\)\\\\(dns_lookup_realm\\\\s*=.*\\\\)\\$/\\\\1\\\\2\n\\\\1dns_lookup_kdc = true\\\\n\\\\1default_realm = ${realm_name}/" /etc/krb5.conf
 	# Perform Kerberos authentication to allow unattended join below
-	cat <<- EOM | expect -f -
+	cat << EOM | expect -f -
 	set force_conservative 1
 	
 	if {\\\$force_conservative} {
-		set send_slow {1 .1}
-		proc send {ignore arg} {
-			sleep .1
-			exp_send -s -- \\\$arg
-		}
+	  set send_slow {1 .1}
+	  proc send {ignore arg} {
+	    sleep .1
+	    exp_send -s -- \\\$arg
+	  }
 	}
 	
 	set timeout -1
@@ -1012,51 +1012,55 @@ if [ "${domain_join}" = "true" ]; then
 	EOM
 	res=\$?
 	if [ \${res} -ne 0 ]; then
-	    # Report script ending
-	    logger -s -p "local7.err" -t "rc.domain-join" "Exiting join (failed Kerberos authentication with join credentials)"
-	    exit \${res}
+	        # Report script ending
+	        logger -s -p "local7.err" -t "rc.domain-join" "Exiting join (failed Kerberos authentication with join credentials)"
+	        exit \${res}
 	else
-	    klist
-	    realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) --computer-ou=OU="DB Servers" --automatic-id-mapping=no ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
-	    # Add further Kerberos SPNs
-	    case "${dbtype}" in
-	        postgresql)
-	            further_spn="postgres"
-	            ;;
-	    esac
-	    if [ -n "\${further_spn}" ]; then
-	        # TODO: adcli update should be preferred but it's not usable as per https://bugzilla.redhat.com/show_bug.cgi?id=1547013
-	        # TODO: try adcli update with explicit --login-ccache parameter as per https://bugs.freedesktop.org/show_bug.cgi?id=99460
-	        adcli join --domain=${ad_subdomain_prefix}.${domain_name[${my_zone}]} --service-name=host --service-name=RestrictedKrbHost --service-name=\${further_spn}
-	    fi
-	    kdestroy
-	    # Limit access from AD accounts
-	    # TODO: GPOs must be created to limit access
-	    cat <<- EOM >> /etc/sssd/sssd.conf
-	    ad_gpo_access_control = enforcing
-	    EOM
-	    # Complete SSSD configuration for AD
-	    sed -i -e '/services/s/\$/, pac/' /etc/sssd/sssd.conf
-	    cat <<- EOM >> /etc/sssd/sssd.conf
-	    auth_provider = ad
-	    chpass_provider = ad
-	    EOM
-	    # Configure sudo for AD-integrated LDAP rules
-	    # Note: using SSSD (instead of direct LDAP access) as sudo backend
-	    cat <<- EOM >> /etc/nsswitch.conf
-	    
-	    sudoers:    files sss
-	    EOM
-	    sed -i -e '/services/s/\$/, sudo/' /etc/sssd/sssd.conf
-	    cat <<- EOM >> /etc/sssd/sssd.conf
-	    sudo_provider = ad
-	    EOM
-	    systemctl restart sssd
-	    # Configure SSH server and client for Kerberos SSO
-	    # TODO: verify auth_to_local mapping rules in /etc/krb5.conf
-	    sed -i -e 's/^#GSSAPIKeyExchange\\s.*\$/GSSAPIKeyExchange yes\\nGSSAPIStoreCredentialsOnRekey yes/' /etc/ssh/sshd_config
-	    sed -i -e 's/^\\(\\s*\\)\\(GSSAPIAuthentication\\s*yes\\).*\$/\\1\\2\\n\\1GSSAPIDelegateCredentials yes\\n\\1GSSAPIKeyExchange yes\\n\\1GSSAPIRenewalForcesRekey yes/' /etc/ssh/ssh_config
-	    systemctl restart sshd
+	        klist
+	        realm join -v --unattended --os-name=\$(lsb_release -si) --os-version=\$(lsb_release -sr) --computer-ou=OU="DB Servers" --automatic-id-mapping=no ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
+	        # Add further Kerberos SPNs
+	        case "${dbtype}" in
+	            postgresql)
+	                further_spn="postgres"
+	                ;;
+	        esac
+	        if [ -n "\${further_spn}" ]; then
+	            # TODO: adcli update should be preferred but it's not usable as per https://bugzilla.redhat.com/show_bug.cgi?id=1547013
+	            # TODO: try adcli update with explicit --login-ccache parameter as per https://bugs.freedesktop.org/show_bug.cgi?id=99460
+	            adcli join --domain=${ad_subdomain_prefix}.${domain_name[${my_zone}]} --service-name=host --service-name=RestrictedKrbHost --service-name=\${further_spn}
+	        fi
+	        kdestroy
+	        # Limit access from AD accounts
+	        # TODO: GPOs must be created to limit access
+		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+		cat << EOM >> /etc/sssd/sssd.conf
+		ad_gpo_access_control = enforcing
+		EOM
+	        # Complete SSSD configuration for AD
+	        sed -i -e '/services/s/\$/, pac/' /etc/sssd/sssd.conf
+		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+		cat << EOM >> /etc/sssd/sssd.conf
+		auth_provider = ad
+		chpass_provider = ad
+		EOM
+	        # Configure sudo for AD-integrated LDAP rules
+	        # Note: using SSSD (instead of direct LDAP access) as sudo backend
+		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+		cat << EOM >> /etc/nsswitch.conf
+		
+		sudoers:    files sss
+		EOM
+	        sed -i -e '/services/s/\$/, sudo/' /etc/sssd/sssd.conf
+		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+		cat << EOM >> /etc/sssd/sssd.conf
+		sudo_provider = ad
+		EOM
+	        systemctl restart sssd
+	        # Configure SSH server and client for Kerberos SSO
+	        # TODO: verify auth_to_local mapping rules in /etc/krb5.conf
+	        sed -i -e 's/^#GSSAPIKeyExchange\\s.*\$/GSSAPIKeyExchange yes\\nGSSAPIStoreCredentialsOnRekey yes/' /etc/ssh/sshd_config
+	        sed -i -e 's/^\\(\\s*\\)\\(GSSAPIAuthentication\\s*yes\\).*\$/\\1\\2\\n\\1GSSAPIDelegateCredentials yes\\n\\1GSSAPIKeyExchange yes\\n\\1GSSAPIRenewalForcesRekey yes/' /etc/ssh/ssh_config
+	        systemctl restart sshd
 	fi
 	EOF
 	popd
@@ -1229,7 +1233,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018090903"
+script_version="2018091101"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
