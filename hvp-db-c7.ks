@@ -1027,7 +1027,8 @@ if [ "${domain_join}" = "true" ]; then
 	        if [ -n "\${further_spn}" ]; then
 	            # TODO: adcli update should be preferred but it's not usable as per https://bugzilla.redhat.com/show_bug.cgi?id=1547013
 	            # TODO: try adcli update with explicit --login-ccache parameter as per https://bugs.freedesktop.org/show_bug.cgi?id=99460
-	            adcli join --domain=${ad_subdomain_prefix}.${domain_name[${my_zone}]} --service-name=host --service-name=RestrictedKrbHost --service-name=\${further_spn}
+		    rm -f /etc/krb5.keytab
+	            adcli join -C --domain=${ad_subdomain_prefix}.${domain_name[${my_zone}]} --service-name=host --service-name=RestrictedKrbHost --service-name=\${further_spn}
 	        fi
 	        kdestroy
 	        # Limit access from AD accounts
@@ -1233,7 +1234,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018091101"
+script_version="2018091401"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
