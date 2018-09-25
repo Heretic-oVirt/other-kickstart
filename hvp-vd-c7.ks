@@ -793,7 +793,7 @@ for zone in "${!network[@]}" ; do
 			# TODO: workaround for Anaconda/NetworkManager bug - remove when fixed upstream
 			echo 'DEFROUTE="no"' >> ifcfg-${nic_names}
 		fi
-		# Add hostname option on the lan zone only (or on mgmt if there is only one network)
+		# Add hostname option on the trusted zone only
 		if [ "${zone}" = "${my_zone}" ]; then
 			if [ "${domain_join}" = "true" ]; then
 				further_options="${further_options} --hostname=${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]}"
@@ -1012,16 +1012,21 @@ done
 popd
 
 # Prepare TCP wrappers custom lines to be appended later on
-# TODO: either offer service on all networks or keep mgmt as trusted if there is at least another one
+# Note: current logic is: only internal network is untrusted (no services offered)
+# TODO: in presence of more than one network, distinguish services to be offered on all from those restricted to the trusted one
+# TODO: align firewalld zones/rules with this logic
 mkdir -p /tmp/hvp-tcp_wrappers-conf
 allowed_addr="127.0.0.1"
-if [ -n "${nics['lan']}" ]; then
-	allowed_addr="${network['lan']}/${netmask['lan']} ${allowed_addr}"
-fi
-allowed_addr="${network['mgmt']}/${netmask['mgmt']} ${allowed_addr}"
+for zone in "${!network[@]}" ; do
+	if [ "${zone}" = "internal" -a "${zone}" != "${my_zone}" ]; then
+		continue
+	fi
+	if [ -n "${nics[${zone}]}" ]; then
+		allowed_addr="${network[${zone}]}/${netmask[${zone}]} ${allowed_addr}"
+	fi
+done
 cat << EOF > /tmp/hvp-tcp_wrappers-conf/hosts.allow
 ALL: ${allowed_addr}
-sshd: ALL
 
 EOF
 
@@ -1195,7 +1200,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018091401"
+script_version="201809251"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
