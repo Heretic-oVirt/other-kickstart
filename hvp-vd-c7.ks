@@ -1118,7 +1118,9 @@ if [ "${domain_join}" = "true" ]; then
 	        # TODO: verify auth_to_local mapping rules in /etc/krb5.conf
 	        sed -i -e 's/^#GSSAPIKeyExchange\\s.*\$/GSSAPIKeyExchange yes\\nGSSAPIStoreCredentialsOnRekey yes/' /etc/ssh/sshd_config
 	        sed -i -e 's/^\\(\\s*\\)\\(GSSAPIAuthentication\\s*yes\\).*\$/\\1\\2\\n\\1GSSAPIDelegateCredentials yes\\n\\1GSSAPIKeyExchange yes\\n\\1GSSAPIRenewalForcesRekey yes/' /etc/ssh/ssh_config
-	        systemctl restart sshd
+		# TODO: restart hangs blocking rc.domain-join indefinitely - working around with stop + start
+	        systemctl stop sshd
+	        systemctl start sshd
 	        # Complete automounter configuration
 	        mkdir -p /home/{${ad_subdomain_prefix}.${domain_name[${my_zone}]},groups} /usr/local/software
 	        chown root:root /home/{${ad_subdomain_prefix}.${domain_name[${my_zone}]},groups} /usr/local/software
@@ -1200,7 +1202,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018092901"
+script_version="2018093001"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -2492,8 +2494,15 @@ popd
 
 # Initialize webalizer
 # Note: Apache logs must be not empty
-wget -O /dev/null http://localhost/
-/etc/cron.daily/00webalizer
+max_steps="30"
+for ((i=0;i<\${max_steps};i=i+1)); do
+	if systemctl -q is-active httpd ; then
+		wget -O /dev/null http://localhost/
+		/etc/cron.daily/00webalizer
+		break
+	fi
+	sleep 5
+done
 
 # Initialize MRTG configuration (needs Net-SNMP up)
 # TODO: add CPU/RAM/disk/etc. resource monitoring
