@@ -16,6 +16,8 @@ hvp-web-c7.ks - kickstart file for a CentOS7 Web applications (X2Go session brok
 
 hvp-mon-c7.ks - kickstart file for a CentOS7 monitoring (oVirt Metrics) machine
 
+hvp-aut-c7.ks - kickstart file for a CentOS7 automation (ManageIQ + AWX) machine
+
 hvp-erp-c7.ks - kickstart file for a CentOS7 application/ERP (TBD) machine
 
 hvp-msg-c7.ks - kickstart file for a CentOS7 messaging/groupware (TBD) machine
@@ -24,7 +26,7 @@ hvp-fw-c7.ks - kickstart file for a CentOS7 firewall/proxy/VPN (firewalld/Squid/
 
 hvp-sat-c7.ks - kickstart file for a CentOS7 management/orchestration/provisioning (Foreman) machine
 
-hvp-vd-win10.xml - autounattend file for a Windows10 virtual desktop machine
+hvp-vd-win2k16.xml - autounattend file for a Windows2016 remote desktop server machine
 
 Each kickstart file has a corresponding sample hvp_parameters_&ast;.sh configuration parameters file (consisting of comments and variable definitions in GNU/Bash syntax) to overcome Linux kernel commandline length limitations.
 
