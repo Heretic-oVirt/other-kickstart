@@ -1734,7 +1734,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018092902"
+script_version="2019021401"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1850,12 +1850,18 @@ then
 fi
 ln -sf $rootdisk /dev/root
 
+# Add YUM priorities plugin
+yum -y install yum-plugin-priorities
+
 # Add support for CentOS CR repository (to allow up-to-date upgrade later)
 yum-config-manager --enable cr > /dev/null
 
 # Add HVP custom repo
 yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-5.noarch.rpm
+# Enable HVP own DC-enabled Samba rebuild repo
 yum-config-manager --enable hvp-samba-dc > /dev/null
+# Make sure that we always prefer HVP own rebuild repo
+yum-config-manager --save --setopt='hvp-samba-dc.priority=50' > /dev/null
 
 # Add upstream repository definitions
 yum -y install epel-release
