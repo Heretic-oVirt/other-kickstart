@@ -26,7 +26,7 @@ hvp-fw-c7.ks - kickstart file for a CentOS7 firewall/proxy/VPN (firewalld/Squid/
 
 hvp-sat-c7.ks - kickstart file for a CentOS7 management/orchestration/provisioning (Foreman) machine
 
-hvp-vd-win2k16.xml - autounattend file for a Windows2016 remote desktop server machine
+hvp-vd-win2k19.xml - autounattend file for a Windows Server 2019 remote desktop server (Session Host) machine
 
 Each kickstart file has a corresponding sample hvp_parameters_&ast;.sh configuration parameters file (consisting of comments and variable definitions in GNU/Bash syntax) to overcome Linux kernel commandline length limitations.
 
