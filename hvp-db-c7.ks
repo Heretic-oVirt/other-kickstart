@@ -306,7 +306,7 @@ notification_receiver="monitoring@localhost"
 
 # Detect any configuration fragments and load them into the pre environment
 # Note: incomplete (no device or filename), BIOS based devices, UUID, file and DHCP methods are unsupported
-ks_custom_frags="hvp_parameters.sh hvp_parameters_heresiarch.sh"
+ks_custom_frags="hvp_parameters.sh hvp_parameters_db.sh"
 mkdir /tmp/kscfg-pre
 mkdir /tmp/kscfg-pre/mnt
 ks_source="$(cat /proc/cmdline | sed -n -e 's/^.*\s*inst\.ks=\(\S*\)\s*.*$/\1/p')"
@@ -1262,7 +1262,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2019030401"
+script_version="2019030402"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
