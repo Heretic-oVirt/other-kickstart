@@ -305,31 +305,33 @@ local_timezone="UTC"
 notification_receiver="monitoring@localhost"
 
 # Detect any configuration fragments and load them into the pre environment
-# Note: BIOS based devices, file and DHCP methods are unsupported
+# Note: incomplete (no device or filename), BIOS based devices, UUID, file and DHCP methods are unsupported
+ks_custom_frags="hvp_parameters.sh hvp_parameters_heresiarch.sh"
 mkdir /tmp/kscfg-pre
 mkdir /tmp/kscfg-pre/mnt
-ks_source="$(cat /proc/cmdline | sed -e 's/^.*\s*inst\.ks=\(\S*\)\s*.*$/\1/')"
+ks_source="$(cat /proc/cmdline | sed -n -e 's/^.*\s*inst\.ks=\(\S*\)\s*.*$/\1/p')"
 if [ -z "${ks_source}" ]; then
-	echo "Unable to determine Kickstart source - skipping configuration fragments retrieval" 1>&2
-else
+	# Note: if we are here and no Kickstart has been explicitly specified, then it must have been found by OEMDRV method (needs CentOS >= 7.2)
+	ks_source='hd:LABEL=OEMDRV'
+fi
+if [ -n "${ks_source}" ]; then
 	ks_dev=""
 	if echo "${ks_source}" | grep -q '^floppy' ; then
 		# Note: hardcoded device name for floppy disk
-		# Note: hardcoded filesystem type on floppy disk - assuming VFAT
 		ks_dev="/dev/fd0"
-		ks_fstype="vfat"
+		# Note: filesystem type on floppy disk autodetected
+		ks_fstype="*"
 		ks_fsopt="ro"
 		ks_path="$(echo ${ks_source} | awk -F: '{print $2}')"
 		if [ -z "${ks_path}" ]; then
 			ks_path="/ks.cfg"
 		fi
-		ks_dir="$(echo ${ks_path} | sed 's%/[^/]*$%%')"
-	elif echo "${ks_source}" | grep -q '^cdrom:' ; then
+		ks_dir="$(echo ${ks_path} | sed -e 's%/[^/]*$%%')"
+	elif echo "${ks_source}" | grep -q '^cdrom' ; then
 		# Note: cdrom gets accessed as real device name which must be detected - assuming it is the first removable device
 		# Note: hardcoded possible device names for CD/DVD - should cover all reasonable cases
 		# Note: on RHEL>=6 even IDE/ATAPI devices have SCSI device names
 		for dev in /dev/sd[a-z] /dev/sr[0-9]; do
-			ks_dev=""
 			if [ -b "${dev}" ]; then
 				is_removable="$(cat /sys/block/$(basename ${dev})/removable 2>/dev/null)"
 				if [ "${is_removable}" = "1" ]; then
@@ -338,10 +340,10 @@ else
 					ks_fsopt="ro"
 					ks_path="$(echo ${ks_source} | awk -F: '{print $2}')"
 					if [ -z "${ks_path}" ]; then
-						echo "Unable to determine Kickstart source path" 1>&2
-						ks_dev=""
+						ks_path="/ks.cfg"
+						ks_dir="/"
 					else
-						ks_dir="$(echo ${ks_path} | sed 's%/[^/]*$%%')"
+						ks_dir="$(echo ${ks_path} | sed -e 's%/[^/]*$%%')"
 					fi
 					break
 				fi
@@ -349,34 +351,46 @@ else
 		done
 	elif echo "${ks_source}" | grep -q '^hd:' ; then
 		# Note: blindly extracting device name from Kickstart commandline
-		ks_dev="/dev/$(echo ${ks_source} | awk -F: '{print $2}')"
-		# TODO: Detect actual filesystem type on local drive - assuming VFAT
-		ks_fstype="vfat"
+		ks_spec="$(echo ${ks_source} | awk -F: '{print $2}')"
+		ks_dev="/dev/${ks_spec}"
+		# Detect LABEL-based device selection
+		if echo "${ks_spec}" | grep -q '^LABEL=' ; then
+			ks_label="$(echo ${ks_spec} | awk -F= '{print $2}')"
+			if [ -z "${ks_label}" ]; then
+				echo "Invalid definition of Kickstart labeled device" 1>&2
+				ks_dev=""
+			else
+				ks_dev=/dev/$(lsblk -r -n -o name,label | awk "/\\<$(echo ${ks_label} | sed -e 's%\([./*\\]\)%\\\1%g')\\>/ {print \$1}" | head -1)
+			fi
+		fi
+		# Note: filesystem type on local drive autodetected
+		ks_fstype="*"
 		ks_fsopt="ro"
 		ks_path="$(echo ${ks_source} | awk -F: '{print $3}')"
 		if [ -z "${ks_path}" ]; then
-			echo "Unable to determine Kickstart source path" 1>&2
-			ks_dev=""
+			ks_path="/ks.cfg"
+			ks_dir="/"
 		else
-			ks_dir="$(echo ${ks_path} | sed 's%/[^/]*$%%')"
+			ks_dir="$(echo ${ks_path} | sed -e 's%/[^/]*$%%')"
 		fi
 	elif echo "${ks_source}" | grep -q '^nfs:' ; then
 		# Note: blindly extracting NFS server from Kickstart commandline
 		ks_host="$(echo ${ks_source} | awk -F: '{print $2}')"
 		ks_fstype="nfs"
+		# TODO: support NFS options
 		ks_fsopt="ro,nolock"
 		ks_path="$(echo ${ks_source} | awk -F: '{print $3}')"
 		if [ -z "${ks_path}" ]; then
-			echo "Unable to determine Kickstart source path" 1>&2
+			echo "Unable to determine Kickstart NFS source path" 1>&2
 			ks_dev=""
 		else
-			ks_dev="${ks_host}:$(echo ${ks_path} | sed 's%/[^/]*$%%')}"
+			ks_dev="${ks_host}:$(echo ${ks_path} | sed -e 's%/[^/]*$%%')}"
 			ks_dir="/"
 		fi
 	elif echo "${ks_source}" | egrep -q '^(http|https|ftp):' ; then
 		# Note: blindly extracting URL from Kickstart commandline
 		ks_host="$(echo ${ks_source} | sed -e 's%^.*//%%' -e 's%/.*$%%')"
-		ks_dev="$(echo ${ks_source} | sed 's%/[^/]*$%%')"
+		ks_dev="$(echo ${ks_source} | sed -e 's%/[^/]*$%%')"
 		ks_fstype="url"
 	else
 		echo "Unsupported Kickstart source detected" 1>&2
@@ -384,7 +398,6 @@ else
 	if [ -z "${ks_dev}" ]; then
 		echo "Unable to extract Kickstart source - skipping configuration fragments retrieval" 1>&2
 	else
-		ks_custom_frags="hvp_parameters.sh hvp_parameters_db.sh"
 		# Note: for network-based kickstart retrieval methods we extract the relevant nic MAC address to get the machine-specific fragment
 		if [ "${ks_fstype}" = "url" -o "${ks_fstype}" = "nfs" ]; then
 			# Note: we detect the nic device name as the one detaining the route towards the host holding the kickstart script
@@ -405,7 +418,8 @@ else
 				wget -P /tmp/kscfg-pre "${ks_dev}/${custom_frag}" 
 			done
 		else
-			mount -t ${ks_fstype} -o ${ks_fsopt} ${ks_dev} /tmp/kscfg-pre/mnt
+			# Note: filesystem type autodetected
+			mount -o ${ks_fsopt} ${ks_dev} /tmp/kscfg-pre/mnt
 			for custom_frag in ${ks_custom_frags} ; do
 				echo "Attempting filesystem retrieval of ${custom_frag}" 1>&2
 				if [ -f "/tmp/kscfg-pre/mnt${ks_dir}/${custom_frag}" ]; then
@@ -476,12 +490,6 @@ if [ -n "${given_winadmin_password}" ]; then
 	winadmin_password="${given_winadmin_password}"
 fi
 
-# Determine notification receiver email address
-given_receiver_email=$(sed -n -e "s/^.*hvp_receiver_email=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-if [ -n "${given_receiver_email}" ]; then
-	notification_receiver="${given_receiver_email}"
-fi
-
 # Determine keyboard layout
 given_keyboard_layout=$(sed -n -e "s/^.*hvp_kblayout=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_keyboard_layout}" ]; then
@@ -492,6 +500,12 @@ fi
 given_local_timezone=$(sed -n -e "s/^.*hvp_timezone=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_local_timezone}" ]; then
 	local_timezone="${given_local_timezone}"
+fi
+
+# Determine notification receiver email address
+given_receiver_email=$(sed -n -e "s/^.*hvp_receiver_email=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_receiver_email}" ]; then
+	notification_receiver="${given_receiver_email}"
 fi
 
 # Determine hostname
@@ -703,6 +717,9 @@ for nic_name in $(ls /sys/class/net/ 2>/dev/null | egrep -v '^(bonding_masters|l
 	fi
 done
 
+# TODO: Perform nic connections consistency check
+# TODO: either offer service on all networks or keep mgmt as trusted if there is at least another one
+
 # Remove my_ip/test_ip, network/netmask/network_base/mtu and domain_name/reverse_domain_name entries for non-existent networks
 for zone in "${!network[@]}" ; do
 	if [ -z "${nics[${zone}]}" ]; then
@@ -716,9 +733,6 @@ for zone in "${!network[@]}" ; do
 		unset reverse_domain_name[${zone}]
 	fi
 done
-
-# TODO: Perform nic connections consistency check
-# TODO: either offer service on all networks or keep mgmt as trusted if there is at least another one
 
 # Determine network segment identity and parameters
 if [ -n "${nics['mgmt']}" ]; then
@@ -839,6 +853,8 @@ EOF
 # Create disk setup fragment
 # TODO: find a better way to detect emulated/VirtIO devices
 all_devices="$(list-harddrives | egrep -v '^(fd|sr)[[:digit:]]*[[:space:]]' | awk '{print $1}' | sort)"
+in_use_devices=$(mount | awk '/^\/dev/ {print gensub("/dev/","","g",$1)}')
+kickstart_device=$(echo "${ks_dev}" | sed -e 's%^/dev/%%')
 if [ -b /dev/vda ]; then
 	disk_device_name="vda"
 elif [ -b /dev/xvda ]; then
@@ -852,7 +868,7 @@ cat << EOF > /tmp/full-disk
 clearpart --drives=${disk_device_name} --all --initlabel --disklabel=gpt
 # Bootloader placed on MBR, with 3 seconds waiting and with password protection
 bootloader --location=mbr --timeout=3 --password=${root_password} --boot-drive=${disk_device_name} --driveorder=${disk_device_name} --append="nomodeset"
-# Ignore further disk - maybe USB key!!!
+# Ignore further disks
 ignoredisk --only-use=${disk_device_name}
 # Automatically create UEFI or BIOS boot partition depending on hardware capabilities
 reqpart --add-boot
@@ -878,6 +894,10 @@ done
 if cat /sys/class/dmi/id/sys_vendor | egrep -q -v "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
 	# Note: resetting all disk devices since leftover configurations may interfer with installation and/or setup later on
 	for current_device in ${all_devices}; do
+		# Skipping devices in active use
+		if [ "${current_device}" = "${kickstart_device}" ] || echo "${in_use_devices}" | grep -q -w "${current_device}" ; then
+			continue
+		fi
 		dd if=/dev/zero of=/dev/${current_device} bs=1M count=10
 		dd if=/dev/zero of=/dev/${current_device} bs=1M count=10 seek=$(($(blockdev --getsize64 /dev/${current_device}) / (1024 * 1024) - 10))
 	done
@@ -1216,6 +1236,7 @@ case "${dbtype}" in
 		;;
 esac
 EOF
+
 popd
 
 ) 2>&1 | tee /tmp/kickstart_pre.log
@@ -1241,7 +1262,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2018093001"
+script_version="2019030401"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1387,7 +1408,7 @@ fi
 mp=$(grep -w "/" /etc/fstab | sed -e 's/ .*//')
 if echo "$mp" | grep -q "^UUID="
 then
-    uuid=$(echo "$mp" |sed 's/UUID=//')
+    uuid=$(echo "$mp" | sed -e 's/UUID=//')
     rootdisk=$(blkid -U $uuid)
 elif echo "$mp" | grep -q "^/dev/"
 then
@@ -1395,8 +1416,21 @@ then
 fi
 ln -sf $rootdisk /dev/root
 
+# Correctly initialize YUM cache to avoid 404 errors
+# Note: following advice in https://access.redhat.com/articles/1320623
+# TODO: remove when fixed upstream
+rm -rf /var/cache/yum/*
+yum --enablerepo '*' clean all
+
+# Make YUM more robust in presence of network problems
+yum-config-manager --save --setopt='retries=30' --setopt='timeout=60' > /dev/null
+
+# Add YUM priorities plugin
+yum -y install yum-plugin-priorities
+
 # Add support for CentOS CR repository (to allow up-to-date upgrade later)
-yum-config-manager --enable cr > /dev/null
+# Note: a partially populated CR repo may introduce dependency-related errors - better to leave this to post-installation manual choices
+#yum-config-manager --enable cr > /dev/null
 
 # Add HVP custom repo
 yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-5.noarch.rpm
@@ -1417,7 +1451,6 @@ EOF
 chmod 644 /etc/yum.repos.d/webmin.repo
 
 # Comment out mirrorlist directives and uncomment the baseurl ones to make better use of proxy caches
-# TODO: investigate whether to disable fastestmirror yum plugin too (may interfer in round-robin-DNS-served names?)
 for repofile in /etc/yum.repos.d/*.repo; do
 	if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
 		sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
@@ -1428,9 +1461,17 @@ done
 # Modify baseurl definitions to allow effective use of our proxy cache
 sed -i -e 's>http://download.fedoraproject.org/pub/epel/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/7/>g' /etc/yum.repos.d/epel.repo
 sed -i -e 's>http://download.fedoraproject.org/pub/epel/testing/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/testing/7/>g' /etc/yum.repos.d/epel-testing.repo
+# Disable fastestmirror yum plugin too
+sed -i -e 's/^enabled.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
 
 # Enable use of delta rpms since we are not using a local mirror
 yum-config-manager --save --setopt='deltarpm=1' > /dev/null
+
+# Correctly initialize YUM cache again before actual bulk installations/upgrades
+# Note: following advice in https://access.redhat.com/articles/1320623
+# TODO: remove when fixed upstream
+rm -rf /var/cache/yum/*
+yum --enablerepo '*' clean all
 
 # Update OS (with "upgrade" to allow package obsoletion) non-interactively ("-y" yum option)
 yum -y upgrade
@@ -1445,14 +1486,6 @@ grubby --set-default=/boot/vmlinuz-$(rpm -q --last kernel | head -1 | cut -f 1 -
 # Install HAVEGEd
 # Note: even in presence of an actual/virtualized hardware random number generator (managed by rngd) we install haveged as a safety measure
 yum -y install haveged
-
-# Conditionally install memory test software
-if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
-	# Note: open source memtest86+ does not support UEFI
-	if [ ! -d /sys/firmware/efi ]; then
-		yum -y install memtest86+
-	fi
-fi
 
 # Install YUM-cron, YUM-plugin-ps, Gdisk, PWGen, HPing, 7Zip and ARJ
 yum -y install hping3 p7zip{,-plugins} arj pwgen
@@ -1507,7 +1540,9 @@ case "${dbtype}" in
 		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
 
 		# Add Percona repository
-		yum -y install https://www.percona.com/downloads/percona-release/redhat/0.1-4/percona-release-0.1-4.noarch.rpm
+		yum -y install https://www.percona.com/redir/downloads/percona-release/redhat/latest/percona-release-0.1-6.noarch.rpm
+		# TODO: import the additional Percona GPG key for toolkit - remove when fixed upstream https://jira.percona.com/browse/PT-1685
+		rpm --import /etc/pki/rpm-gpg/PERCONA-PACKAGING-KEY
 
 		# Install Percona custom version of MySQL (newer/tweaked) instead of the standard (CentOS-provided) one
 		# Note: this should bring in Percona compat client libraries for MySQL 5.1.x
@@ -1604,7 +1639,7 @@ elif dmidecode -s system-manufacturer | grep -q "Microsoft" ; then
 	yum -y install hyperv-daemons
 elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
 	# Note: VMware basic support installed here (since it is included in base distro now)
-	yum -y install open-vm-tools open-vm-tools-desktop fuse
+	yum -y install open-vm-tools fuse
 fi
 
 # Tune package list to underlying platform
@@ -1612,6 +1647,12 @@ if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parall
 	# Exclude CPU microcode updates to avoid errors on virtualized platform
 	yum -y erase microcode_ctl
 else
+	# Install Memtest86+
+	# Note: open source memtest86+ does not support UEFI
+	if [ ! -d /sys/firmware/efi ]; then
+		yum -y install memtest86+
+	fi
+
 	# Install MCE logging/management service
 	yum -y install mcelog
 fi
@@ -1623,19 +1664,8 @@ yum --enablerepo '*' clean all
 find /etc -type f -name '*.rpmnew' -exec rename .rpmnew "" '{}' ';'
 find /etc -type f -name '*.rpmsave' -exec rm -f '{}' ';'
 
-# Disable mirrorlists and use baseurls only (better utilization of our proxy cache)
-# Note: repeated here since repo file could have been upgraded above
-for repofile in /etc/yum.repos.d/*.repo; do
-	if grep -q '^mirrorlist' "${repofile}"; then
-		sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
-		sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
-	fi
-done
-# Modify baseurl definitions to allow effective use of our proxy cache
-sed -i -e 's>http://download.fedoraproject.org/pub/epel/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/7/>g' /etc/yum.repos.d/epel.repo
-sed -i -e 's>http://download.fedoraproject.org/pub/epel/testing/7/>http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/testing/7/>g' /etc/yum.repos.d/epel-testing.repo
-
 # Now configure the base OS
+# TODO: Decide which part to configure here and which part to demand to Ansible
 
 # Setup auto-update via yum-cron (ala CentOS4, replacement for yum-updatesd in CentOS5)
 # Note: Updates left to the administrator manual intervention
@@ -1652,6 +1682,11 @@ if [ -d /sys/firmware/efi ]; then
 else
 	grub2_cfg_file="/etc/grub2.cfg"
 fi
+
+# Configure GRUB2 boot loader (no splash screen, no Plymouth, show menu, wait 5 seconds for manual override)
+# Note: alternatively, Plymouth may be instructed to use detailed listing with: plymouth-set-default-theme -R details
+sed -i -e '/^GRUB_CMDLINE_LINUX/s/\s*rhgb//' -e '/^GRUB_TIMEOUT/s/=.*$/="5"/' /etc/default/grub
+grub2-mkconfig -o "${grub2_cfg_file}"
 
 # TODO: Setup a serial terminal
 # TODO: find a way to detect serial port use by other software (like ovirt-guest-agent) and skip for console
@@ -1673,11 +1708,6 @@ fi
 #	grub2-mkconfig -o "${grub2_cfg_file}"
 #fi
 
-# Configure GRUB2 boot loader (no splash screen, no Plymouth, show menu, wait 5 seconds for manual override)
-# Note: alternatively, Plymouth may be instructed to use detailed listing with: plymouth-set-default-theme -R details
-sed -i -e '/^GRUB_CMDLINE_LINUX/s/\s*rhgb//' -e '/^GRUB_TIMEOUT/s/=.*$/="5"/' /etc/default/grub
-grub2-mkconfig -o "${grub2_cfg_file}"
-
 # Conditionally add memory test entry to boot loader
 if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
 	# Note: open source memtest86+ does not support UEFI
@@ -1687,12 +1717,9 @@ if dmidecode -s system-manufacturer | egrep -q -v "(Microsoft|VMware|innotek|Par
 	fi
 fi
 
-# Configure kernel I/O scheduler policy for a virtual machine
-# TODO: test with noop elevator
-if dmidecode -s system-manufacturer | egrep -q "(Microsoft|VMware|innotek|Parallels|Red.*Hat|oVirt|Xen)" ; then
-	sed -i -e '/^GRUB_CMDLINE_LINUX/s/\selevator=[^[:space:]"]*//' -e '/^GRUB_CMDLINE_LINUX/s/"$/ elevator=deadline"/' /etc/default/grub
-	grub2-mkconfig -o "${grub2_cfg_file}"
-fi
+# Configure kernel I/O scheduler policy
+sed -i -e '/^GRUB_CMDLINE_LINUX/s/\selevator=[^[:space:]"]*//' -e '/^GRUB_CMDLINE_LINUX/s/"$/ elevator=deadline"/' /etc/default/grub
+grub2-mkconfig -o "${grub2_cfg_file}"
 
 # Configuration of session/system management (ignore power actions initiated by keyboard etc.)
 # Note: interactive startup is disabled by default (enable with systemd.confirm_spawn=true on kernel commandline) and single user mode uses sulogin by default
@@ -1899,6 +1926,9 @@ Continued use of this computer implies acceptance of the above conditions.
 
 EOF
 chmod 644 /etc/{issue*,motd}
+
+# Enable persistent Journal logs
+mkdir -p /var/log/journal
 
 # Note: email aliases configured through script created in pre section above and copied in third post section below
 
@@ -2132,19 +2162,12 @@ cat << EOF > /var/www/html/index.html
 EOF
 chmod 644 /var/www/html/index.html
 
-# Configure Webalizer (allow access from everywhere)
-# Note: webalizer initialization demanded to post-install rc.ks1stboot script
-sed -i -e 's/^\(\s*\)\(Require local.*\)$/\1Require all granted/' /etc/httpd/conf.d/webalizer.conf
-
-# Enable Webalizer
-sed -i -e '/WEBALIZER_CRON=/s/^#*\(WEBALIZER_CRON=\).*$/\1yes/' /etc/sysconfig/webalizer
-
 # Enable Apache
 firewall-offline-cmd --add-service=http
 systemctl enable httpd
 
 # Configure Webmin
-# Add "/manage/" location with forced redirect to port 10000 in Apache configuration
+# Add "/manage/" location with forced redirect to Webmin port in Apache configuration
 cat << EOF > /etc/httpd/conf.d/webmin.conf
 #
 #  Apache-based redirection for Webmin
@@ -2238,6 +2261,13 @@ chmod 644 /etc/firewalld/services/webmin.xml
 # Enable Webmin
 firewall-offline-cmd --add-service=webmin
 systemctl enable webmin
+
+# Configure Webalizer (allow access from everywhere)
+# Note: webalizer initialization demanded to post-install rc.ks1stboot script
+sed -i -e 's/^\(\s*\)\(Require local.*\)$/\1Require all granted/' /etc/httpd/conf.d/webalizer.conf
+
+# Enable Webalizer
+sed -i -e '/WEBALIZER_CRON=/s/^#*\(WEBALIZER_CRON=\).*$/\1yes/' /etc/sysconfig/webalizer
 
 # TODO: Debug - enable verbose logging in firewalld - maybe disable for production use?
 firewall-offline-cmd --set-log-denied=all
@@ -2682,21 +2712,12 @@ elif dmidecode -s system-manufacturer | grep -q 'Xen' ; then
 	rm -f xe-guest-utilities*.rpm
 elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
 	# Note: VMware basic support uses distro-provided packages installed during post phase
-	# Note: using vmware-hgfsclient (already part of open-vm-tools) for shared folders support
-	shared_folders="\$(vmware-hgfsclient)"
-	if [ -z "\${shared_folders}" ]; then
-		cat <<- EOM >> /etc/fstab
-		# Template line to activate boot-mounted shared folders
-		#.host:/Test	/mnt/hgfs/Test	fuse.vmhgfs-fuse	allow_other,auto_unmount,defaults	0 0
-		EOM
-	else
-		for shared_folder in \${shared_folders} ; do
-			mkdir -p "/mnt/hgfs/\${shared_folder}"
-			cat <<- EOM >> /etc/fstab
-			.host:/\${shared_folder}	/mnt/hgfs/\${shared_folder}	fuse.vmhgfs-fuse	allow_other,auto_unmount,defaults	0 0
-			EOM
-		done
-	fi
+	# TODO: adding _netdev to break possible systemd ordering cycle - investigate further and remove it
+	mkdir -p /mnt/hgfs
+	cat <<- EOM >> /etc/fstab
+	.host:/	/mnt/hgfs	fuse.vmhgfs-fuse	allow_other,auto_unmount,_netdev,x-systemd.requires=vmtoolsd.service,defaults	0 0
+	EOM
+	mount /mnt/hgfs
 	need_reboot="no"
 elif dmidecode -s system-manufacturer | grep -q "innotek" ; then
 	wget https://dangerous.ovirt.life/support/VirtualBox/VBoxLinuxAdditions.run
@@ -2843,6 +2864,10 @@ systemctl mask firstboot-graphical
 systemctl mask initial-setup-graphical
 systemctl mask initial-setup-text
 systemctl mask initial-setup
+
+# TODO: sometimes it seems that an haveged process lingers on, blocking the end of the post phase
+# TODO: killing any surviving haveged process as a workaround
+pkill -KILL -f havege
 
 ) 2>&1 | tee /root/kickstart_post_1.log
 %end
