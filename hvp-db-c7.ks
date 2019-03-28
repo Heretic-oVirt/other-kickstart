@@ -1292,7 +1292,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2019032601"
+script_version="2019032801"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1566,6 +1566,60 @@ skip_if_unavailable = 1
 EOF
 chmod 644 /etc/yum.repos.d/webmin.repo
 
+# Add database upstream repos
+case "${dbtype}" in
+	postgresql)
+		# Derive repository version to use
+		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
+
+		# Add PostgreSQL upstream repository
+		# TODO: it seems that older release packages get purged - downloading all and installing latest from local - open notification upstream
+		mkdir /tmp/pgdg-all
+		pushd /tmp/pgdg-all
+		wget -e robots=off -r -l1 -nd -np "https://download.postgresql.org/pub/repos/yum/${dbversion}/redhat/rhel-7-x86_64/" -A "pgdg-redhat${repoversion}-${dbversion}-*.noarch.rpm"
+		find . -type f -print0 | sort -z -r | sed -z -n -e '1p' | xargs -0 yum -y install 
+		popd
+		rm -rf /tmp/pgdg-all
+
+		;;
+	mysql)
+		# Derive repository version to use
+		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
+
+		# Add Percona repository
+		yum -y install https://www.percona.com/redir/downloads/percona-release/redhat/latest/percona-release-0.1-6.noarch.rpm
+		# TODO: import the additional Percona GPG key for toolkit - remove when fixed upstream https://jira.percona.com/browse/PT-1685
+		rpm --import /etc/pki/rpm-gpg/PERCONA-PACKAGING-KEY
+
+		;;
+	mongodb)
+		# Add MongoDB repository
+		cat <<- EOF > /etc/yum.repos.d/mongodb-org-${dbversion}.repo
+		[mongodb-org-${dbversion}]
+		name=MongoDB Repository
+		baseurl=https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/${dbversion}/\$basearch/
+		gpgcheck=1
+		enabled=1
+		gpgkey=https://www.mongodb.org/static/pgp/server-${dbversion}.asc
+		EOF
+		chmod 644 /etc/yum.repos.d/mongodb-org-${dbversion}.repo
+
+		;;
+	sqlserver)
+		# Determine desired version
+		repoversion=$(echo "${dbversion}" | sed -e 's/\./-/g' -e 's/^\(.*\)$/\L\1/g' -e 's/-cu//g')
+
+		# Add Microsoft repositories
+		wget -O /etc/yum.repos.d/mssql-server.repo https://packages.microsoft.com/config/rhel/7/mssql-server-${repoversion}.repo
+		chmod 644 /etc/yum.repos.d/mssql-server.repo
+		chown root:root /etc/yum.repos.d/mssql-server.repo
+		wget -O /etc/yum.repos.d/msprod.repo https://packages.microsoft.com/config/rhel/7/prod.repo
+		chmod 644 /etc/yum.repos.d/msprod.repo
+		chown root:root /etc/yum.repos.d/msprod.repo
+
+		;;
+esac
+
 # Comment out mirrorlist directives and uncomment the baseurl ones to make better use of proxy caches
 # Note: repeated here to allow applying to further repos installed above
 for repofile in /etc/yum.repos.d/*.repo; do
@@ -1664,15 +1718,6 @@ case "${dbtype}" in
 		# Derive repository version to use
 		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
 
-		# Add PostgreSQL upstream repository
-		# TODO: it seems that older release packages get purged - downloading all and installing latest from local - open notification upstream
-		mkdir /tmp/pgdg-all
-		pushd /tmp/pgdg-all
-		wget -e robots=off -r -l1 -nd -np "https://download.postgresql.org/pub/repos/yum/${dbversion}/redhat/rhel-7-x86_64/" -A "pgdg-redhat${repoversion}-${dbversion}-*.noarch.rpm"
-		find . -type f -print0 | sort -z -r | sed -z -n -e '1p' | xargs -0 yum -y install 
-		popd
-		rm -rf /tmp/pgdg-all
-
 		# Install upstream PostgreSQL (newer) instead of the standard (CentOS-provided) one
 		yum -y install postgresql${repoversion} postgresql${repoversion}-server
 
@@ -1685,11 +1730,6 @@ case "${dbtype}" in
 	mysql)
 		# Derive repository version to use
 		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
-
-		# Add Percona repository
-		yum -y install https://www.percona.com/redir/downloads/percona-release/redhat/latest/percona-release-0.1-6.noarch.rpm
-		# TODO: import the additional Percona GPG key for toolkit - remove when fixed upstream https://jira.percona.com/browse/PT-1685
-		rpm --import /etc/pki/rpm-gpg/PERCONA-PACKAGING-KEY
 
 		# Install Percona custom version of MySQL (newer/tweaked) instead of the standard (CentOS-provided) one
 		# Note: this should bring in Percona compat client libraries for MySQL 5.1.x
@@ -1714,17 +1754,6 @@ case "${dbtype}" in
 		# TODO: create an rpm package for firebirdwebadmin from https://github.com/mariuz/firebirdwebadmin and install together with php-interbase
 		;;
 	mongodb)
-		# Add MongoDB repository
-		cat <<- EOF > /etc/yum.repos.d/mongodb-org-${dbversion}.repo
-		[mongodb-org-${dbversion}]
-		name=MongoDB Repository
-		baseurl=https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/${dbversion}/\$basearch/
-		gpgcheck=1
-		enabled=1
-		gpgkey=https://www.mongodb.org/static/pgp/server-${dbversion}.asc
-		EOF
-		chmod 644 /etc/yum.repos.d/mongodb-org-${dbversion}.repo
-
 		# Install MongoDB
 		# Note: this brings in the server, shell and tools packages
 		yum -y install mongodb-org
@@ -1734,14 +1763,6 @@ case "${dbtype}" in
 	sqlserver)
 		# Determine desired version
 		repoversion=$(echo "${dbversion}" | sed -e 's/\./-/g' -e 's/^\(.*\)$/\L\1/g' -e 's/-cu//g')
-
-		# Add Microsoft repositories
-		wget -O /etc/yum.repos.d/mssql-server.repo https://packages.microsoft.com/config/rhel/7/mssql-server-${repoversion}.repo
-		chmod 644 /etc/yum.repos.d/mssql-server.repo
-		chown root:root /etc/yum.repos.d/mssql-server.repo
-		wget -O /etc/yum.repos.d/msprod.repo https://packages.microsoft.com/config/rhel/7/prod.repo
-		chmod 644 /etc/yum.repos.d/msprod.repo
-		chown root:root /etc/yum.repos.d/msprod.repo
 
 		# Set this variable in order to avoid interactive questions from postinst scripts
 		export ACCEPT_EULA=Y
