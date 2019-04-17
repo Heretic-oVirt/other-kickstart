@@ -57,3 +57,13 @@ keyboard_layout="us"
 local_timezone="UTC"
 
 notification_receiver="monitoring@localhost"
+
+yum_sleep_time="10"
+yum_retries="10"
+
+# Note: default base and GPG-key values for repos are those inside .repo files - reported here as an example
+#hvp_repo_baseurl['base']='http://centos.mirror.garr.it/centos/$releasever/os/$basearch/'
+#hvp_repo_baseurl['updates']='http://centos.mirror.garr.it/centos/$releasever/updates/$basearch/'
+#hvp_repo_baseurl['extras']='http://centos.mirror.garr.it/centos/$releasever/extras/$basearch/'
+#hvp_repo_baseurl['epel']='http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/$releasever/$basearch/'
+#hvp_repo_gpgkey['epel']='http://www.nic.funet.fi/pub/mirrors/fedora.redhat.com/pub/epel/RPM-GPG-KEY-EPEL-$releasever'
