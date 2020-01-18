@@ -38,12 +38,6 @@ my_nameserver="8.8.8.8"
 
 my_name="rainbowdash"
 
-my_ntpservers="0.centos.pool.ntp.org,1.centos.pool.ntp.org,2.centos.pool.ntp.org,3.centos.pool.ntp.org"
-
-my_smtpserver=""
-
-use_smtps="false"
-
 # Note: passwords must meet the AD complexity requirements
 root_password="HVP_dem0"
 admin_username="hvpadmin"
