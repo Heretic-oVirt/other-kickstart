@@ -2,7 +2,6 @@
 # Note: minimum amount of RAM successfully tested for installation: 2048 MiB from network - 1024 MiB from local media
 
 # Install with commandline (see below for comments):
-# TODO: check each and every custom "hvp_" parameter below for overlap with default dracut/anaconda parameters and convert to using those instead
 # nomodeset elevator=deadline inst.ks=https://dangerous.ovirt.life/hvp-repos/el7/ks/hvp-db-c7.ks
 # Note: DHCP is assumed to be available on one and only one network (the mgmt one, which will be autodetected, albeit with a noticeable delay) otherwise the ip=nicname:dhcp option must be added, where nicname is the name of the network interface to be used for installation (eg: ens32)
 # Note: to force custom/fixed nic names add ifname=netN:AA:BB:CC:DD:EE:FF where netN is the desired nic name and AA:BB:CC:DD:EE:FF is the MAC address of the corresponding network interface
@@ -12,16 +11,20 @@
 # Note: to access the running installation by SSH (beware of publishing the access informations specified with the sshpw directive below) add the option inst.sshd
 # Note: to force static nic name-to-MAC mapping add the option hvp_nicmacfix
 # Note: to force custom host naming add hvp_myname=myhostname where myhostname is the unqualified (ie without domain name part) hostname
-# Note: to force custom addressing add hvp_{mgmt,lan}=x.x.x.x/yy where x.x.x.x may either be the machine IP or the network address on the given network and yy is the prefix on the given network
+# Note: to force custom addressing add hvp_{mgmt,lan}=x.x.x.x/yy where x.x.x.x may either be the machine IP or the network address on the given network and yy is the prefix on the given network (distinct physical networks cannot be logically conflated)
 # Note: to force custom IPs add hvp_{mgmt,lan}_my_ip=t.t.t.t where t.t.t.t is the chosen IP on the given network
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
-# Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
+# Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name (if distinct physical networks have conflated domain names, host names will be decorated with a "-zonename" suffix)
 # Note: to force custom multi-instance limit for each vm type (kickstart) add hvp_maxinstances=A where A is the maximum number of instances
 # Note: to force custom AD subdomain naming add hvp_ad_subdomainname=myprefix where myprefix is the subdomain name
 # Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an AD domain) or "false" (do not join an AD domain)
 # Note: to force custom database type add hvp_dbtype=dddd where dddd is the database type (either postgresql, mysql, firebird, mongodb or sqlserver)
 # Note: to force custom database version add hvp_dbversion=a.b where a.b is the database version number
-# Note: to force custom nameserver IP add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
+# Note: to force custom database superuser password add hvp_dbpwd=mydbpassword where mydbpassword is the database superuser password
+# Note: to force custom nameserver IP add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP (when joining AD this should be an AD DC)
+# Note: to force custom NTP server names/IPs add hvp_ntpservers=ntp0,ntp1,ntp2,ntp3 where ntpN are the NTP servers fully qualified domain names or IPs (when joining AD this will use the PDC-emulator role holder)
+# Note: to force custom SMTP relay server name/IP add hvp_smtpserver=smtpname where smtpname is the SMTP server fully qualified domain name or IP (used only on nodes and vms)
+# Note: to force custom SMTP relay server to use SMTPS add hvp_smtps (used only on nodes and vms)
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
 # Note: to force custom root password add hvp_rootpwd=mysecret where mysecret is the root user password
 # Note: to force custom admin username add hvp_adminname=myadmin where myadmin is the admin username
@@ -45,8 +48,12 @@
 # Note: the default AD subdomain name is assumed to be ad
 # Note: the default domain action is "false" (do not join an AD domain)
 # Note: the default database type is postgresql
-# Note: the default database version is 9.6 (postgresql), 5.7 (mysql), 2.5 (firebird), 3.6 (mongodb) and 2017.CU (sqlserver)
+# Note: the default database version is 11 (postgresql), 5.7 (mysql), 2.5 (firebird), 4.1 (mongodb) and 2017.CU (sqlserver)
+# Note: the default database superuser password is HVP_dem0
 # Note: the default nameserver IP is assumed to be 8.8.8.8
+# Note: the default NTP server names are assumed to be 0.centos.pool.ntp.org 1.centos.pool.ntp.org 2.centos.pool.ntp.org 3.centos.pool.ntp.org (when joining AD this will use the PDC-emulator role holder)
+# Note: the default SMTP server name is assumed to be empty and the mail relaying will happen locally
+# Note: the default SMTP server connection is assumed to be plaintext with STARTTLS
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
 # Note: the default root user password is HVP_dem0
 # Note: the default admin username is hvpadmin
@@ -141,6 +148,7 @@ unix2dos
 screen
 minicom
 telnet
+ftp
 tree
 audit
 iptraf
@@ -228,6 +236,7 @@ unset ad_subdomain_prefix
 unset domain_join
 unset dbtype
 unset dbversion
+unset dbpwd
 unset reverse_domain_name
 unset test_ip
 unset test_ip_offset
@@ -236,6 +245,9 @@ unset multi_instance_max
 unset my_name
 unset my_nameserver
 unset my_gateway
+unset my_ntpservers
+unset my_smtpserver
+unset use_smtps
 unset root_password
 unset admin_username
 unset admin_password
@@ -252,7 +264,8 @@ unset hvp_repo_gpgkey
 nicmacfix="false"
 
 dbtype="postgresql"
-dbversion="9.6"
+dbversion="11"
+dbpwd="HVP_dem0"
 
 declare -A hvp_repo_baseurl
 declare -A hvp_repo_gpgkey
@@ -290,10 +303,8 @@ ad_subdomain_prefix="ad"
 
 domain_join="false"
 
+# Note: no need to define reverse network domain names since they get automatically defined below
 declare -A reverse_domain_name
-reverse_domain_name['mgmt']="10.20.172.in-addr.arpa"
-reverse_domain_name['lan']="12.20.172.in-addr.arpa"
-reverse_domain_name['internal']="13.20.172.in-addr.arpa"
 
 declare -A test_ip
 # Note: default values for test_ip derived below - defined here to allow loading as configuration parameters
@@ -301,6 +312,12 @@ declare -A test_ip
 my_nameserver="8.8.8.8"
 
 my_name="bigmcintosh"
+
+my_ntpservers="0.centos.pool.ntp.org,1.centos.pool.ntp.org,2.centos.pool.ntp.org,3.centos.pool.ntp.org"
+
+my_smtpserver=""
+
+use_smtps="false"
 
 # Note: passwords must meet the DB complexity requirements
 root_password="HVP_dem0"
@@ -553,10 +570,10 @@ given_dbversion=$(sed -n -e 's/^.*hvp_dbversion=\(\S*\).*$/\1/p' /proc/cmdline)
 if [ -n "${given_dbversion}" ]; then
 	dbversion="${given_dbversion}"
 fi
-if [ -z "${dbversion}" -o "${dbtype}" != "postgresql" -a "${dbversion}" = "9.6" ]; then
+if [ -z "${dbversion}" -o "${dbtype}" != "postgresql" -a "${dbversion}" = "11" ]; then
 	case "${dbtype}" in
 		postgresql)
-			dbversion="9.6"
+			dbversion="11"
 			;;
 		mysql)
 			dbversion="5.7"
@@ -565,7 +582,7 @@ if [ -z "${dbversion}" -o "${dbtype}" != "postgresql" -a "${dbversion}" = "9.6" 
 			dbversion="2.5"
 			;;
 		mongodb)
-			dbversion="3.6"
+			dbversion="4.1"
 			;;
 		sqlserver)
 			dbversion="2017.CU"
@@ -573,10 +590,33 @@ if [ -z "${dbversion}" -o "${dbtype}" != "postgresql" -a "${dbversion}" = "9.6" 
 	esac
 fi
 
+# Determine database superuser password
+given_dbpwd=$(sed -n -e "s/^.*hvp_dbpwd=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_dbpwd}" ]; then
+	dbpwd="${given_dbpwd}"
+fi
+
 # Determine nameserver address
 given_nameserver=$(sed -n -e "s/^.*hvp_nameserver=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_nameserver}" ]; then
 	my_nameserver="${given_nameserver}"
+fi
+
+# Determine NTP servers addresses
+given_ntpservers=$(sed -n -e "s/^.*hvp_ntpservers=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_ntpservers}" ]; then
+	my_ntpservers="${given_ntpservers}"
+fi
+
+# Determine SMTP server address
+given_smtpserver=$(sed -n -e "s/^.*hvp_smtpserver=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_smtpserver}" ]; then
+	my_smtpserver="${given_smtpserver}"
+fi
+
+# Determine choice of forcing SMTPS
+if grep -w -q 'hvp_smtps' /proc/cmdline ; then
+	use_smtps="true"
 fi
 
 # Determine gateway address
@@ -754,6 +794,18 @@ if [ -z "${my_gateway}" ]; then
 	my_gateway="${test_ip[${my_zone}]}"
 fi
 
+# Perform check to detect conflated domain name spaces
+# Note: in presence even of a couple of conflated domain name spaces we will force hostname suffixes on all subnets
+use_hostname_decoration="false"
+added_zones=""
+for zone in "${!network[@]}" ; do
+	if echo "${added_zones}" | grep -q -w $(echo "${domain_name[${zone}]}" | sed -e 's/[.]/\\./g') ; then
+		use_hostname_decoration="true"
+		break
+	fi
+	added_zones="${added_zones} ${domain_name[${zone}]}"
+done
+
 # Create network setup fragment
 # Note: dynamically created here to make use of full autodiscovery above
 # Note: defining statically configured access to autodetected networks
@@ -784,9 +836,9 @@ for zone in "${!network[@]}" ; do
 		# Add hostname option on the trusted zone only
 		if [ "${zone}" = "${my_zone}" ]; then
 			if [ "${domain_join}" = "true" ]; then
-				further_options="${further_options} --hostname=${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]}"
+				further_options="${further_options} --hostname=${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${zone}]}"
 			else
-				further_options="${further_options} --hostname=${my_name}.${domain_name[${zone}]}"
+				further_options="${further_options} --hostname=${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${domain_name[${zone}]}"
 			fi
 		fi
 		# Single (plain) interface
@@ -848,7 +900,6 @@ fi
 EOF
 
 # Create localization setup fragment
-# TODO: allow changing system language too
 cat << EOF > /tmp/full-localization
 # Default system language, additional languages can be enabled installing the appropriate packages below
 lang en_US.UTF-8
@@ -880,9 +931,23 @@ bootloader --location=mbr --timeout=3 --password=${root_password} --boot-drive=$
 ignoredisk --only-use=${disk_device_name}
 # Automatically create UEFI or BIOS boot partition depending on hardware capabilities
 reqpart --add-boot
-# Simple partitioning: single root and swap
-part swap --fstype swap --recommended --ondisk=${disk_device_name} --asprimary
-part / --fstype xfs --size=100 --grow --ondisk=${disk_device_name} --asprimary
+# Note: the following uses only the first disk as PV and leaves other disks unused if the first one is sufficiently big, otherwise starts using other disks too
+part pv.01 --size=64000 --grow
+# Create a VG
+volgroup DBVG pv.01
+# Define swap space
+logvol swap --vgname=DBVG --name=swap --fstype=swap --recommended
+logvol / --vgname=DBVG --name=root --size=6000
+logvol /var --vgname=DBVG --name=var --size=2000
+logvol /var/cache --vgname=DBVG --name=var_cache --size=5000
+logvol /var/crash --vgname=DBVG --name=var_crash --size=12000
+logvol /var/lib --vgname=DBVG --name=var_lib --size=10000 --grow
+logvol /var/log --vgname=DBVG --name=var_log --size=10000
+logvol /var/log/audit --vgname=DBVG --name=var_log_audit --size=2000
+logvol /var/spool --vgname=DBVG --name=var_spool --size=3000
+logvol /var/tmp --vgname=DBVG --name=var_tmp --size=2000
+logvol /home --vgname=DBVG --name=home --size=1000
+logvol /tmp --vgname=DBVG --name=tmp --size=2000
 EOF
 # Clean up disks from any previous LVM setup
 # Note: it seems that simply zeroing out below is not enough
@@ -981,15 +1046,18 @@ pushd /tmp/hvp-ntpd-conf
 if [ "${domain_join}" = "true" ]; then
 	# Make sure to sync only with the proper time reference (emulate Windows behaviour, using as reference the AD domain name to get back the DC holding the PDC emulator FSMO role)
 	ntp_server="${ad_subdomain_prefix}.${domain_name[${my_zone}]}"
+	echo "${ntp_server}" > step-tickers
 	cat <<- EOF > chrony.conf
 
 	server ${ntp_server} iburst
 
 	EOF
 else
-	ntp_server="0.centos.pool.ntp.org"
+	for server in $(echo "${my_ntpservers}" | sed -e 's/,/ /g'); do
+		echo "${server}" >> step-tickers
+		echo "server ${server} iburst" >> chrony.conf
+	done
 fi
-echo "${ntp_server}" > step-tickers
 popd
 
 # Prepare hosts file to be copied later on below
@@ -1003,16 +1071,16 @@ for zone in "${!network[@]}" ; do
 	if [ "${zone}" = "${my_zone}" ]; then
 		if [ "${domain_join}" = "true" ]; then
 			cat <<- EOF >> hosts
-			${my_ip[${zone}]}		${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}
+			${my_ip[${zone}]}		${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi)
 			EOF
 		else
 			cat <<- EOF >> hosts
-			${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]} ${my_name}
+			${my_ip[${zone}]}		${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${domain_name[${zone}]} ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi)
 			EOF
 		fi
 	else
 		cat <<- EOF >> hosts
-		${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]}
+		${my_ip[${zone}]}		${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${domain_name[${zone}]}
 		EOF
 	fi
 done
@@ -1082,7 +1150,7 @@ if [ "${domain_join}" = "true" ]; then
 	        if [ -n "\${further_spn}" ]; then
 	            # TODO: adcli update should be preferred but it's not usable as per https://bugzilla.redhat.com/show_bug.cgi?id=1547013
 	            # TODO: try adcli update with explicit --login-ccache parameter as per https://bugs.freedesktop.org/show_bug.cgi?id=99460
-		    rm -f /etc/krb5.keytab
+	            rm -f /etc/krb5.keytab
 	            adcli join -C --domain=${ad_subdomain_prefix}.${domain_name[${my_zone}]} --service-name=host --service-name=RestrictedKrbHost --service-name=\${further_spn}
 	        fi
 	        kdestroy
@@ -1093,9 +1161,10 @@ if [ "${domain_join}" = "true" ]; then
 		ad_gpo_access_control = enforcing
 		EOM
 	        # Complete SSSD configuration for AD
-	        sed -i -e '/services/s/\$/, pac/' /etc/sssd/sssd.conf
+	        sed -i -e '/services/s/\$/, pac/' -e '/^use_fully_qualified_names/s/True/False/' -e '/^fallback_homedir/s>%u@%d>%d/%u>' /etc/sssd/sssd.conf
 		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
 		cat << EOM >> /etc/sssd/sssd.conf
+		auto_private_groups = True
 		auth_provider = ad
 		chpass_provider = ad
 		EOM
@@ -1113,12 +1182,13 @@ if [ "${domain_join}" = "true" ]; then
 		EOM
 	        systemctl restart sssd
 	        # Configure SSH server and client for Kerberos SSO
-	        # TODO: verify auth_to_local mapping rules in /etc/krb5.conf
 	        sed -i -e 's/^#GSSAPIKeyExchange\\s.*\$/GSSAPIKeyExchange yes\\nGSSAPIStoreCredentialsOnRekey yes/' /etc/ssh/sshd_config
 	        sed -i -e 's/^\\(\\s*\\)\\(GSSAPIAuthentication\\s*yes\\).*\$/\\1\\2\\n\\1GSSAPIDelegateCredentials yes\\n\\1GSSAPIKeyExchange yes\\n\\1GSSAPIRenewalForcesRekey yes/' /etc/ssh/ssh_config
-		# TODO: restart hangs blocking rc.domain-join indefinitely - working around with stop + start
+	        # TODO: restart hangs blocking rc.domain-join indefinitely - working around with stop + start
+	        # TODO: start hangs too - working around with background start
 	        systemctl stop sshd
-	        systemctl start sshd
+	        sleep 5
+	        systemctl start sshd &
 	fi
 	EOF
 	popd
@@ -1135,29 +1205,50 @@ case "${dbtype}" in
 		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
 
 		# Initialize PostgreSQL
-		/usr/pgsql-${dbversion}/bin/postgresql\${repoversion}-setup initdb
+		# Note: from PostgreSQL 10 onwards the setup executable changed name
+		postgresql_setup_bin="/usr/pgsql-${dbversion}/bin/postgresql\${repoversion}-setup"
+		if [ ! -x "\${postgresql_setup_bin}" ]; then
+			postgresql_setup_bin="/usr/pgsql-${dbversion}/bin/postgresql-\${repoversion}-setup"
+		fi
+		\${postgresql_setup_bin} initdb
 
 		# Enable and start PostgreSQL
 		systemctl --now enable postgresql-${dbversion}
 
 		# Change system/DB password for PostgreSQL admin user
-		echo '${root_password}' | passwd --stdin postgres
-		su - postgres -c "psql -d template1 -c \\"ALTER USER postgres WITH PASSWORD '${root_password}';\\""
+		echo '${dbpwd}' | passwd --stdin postgres
+		su - postgres -c "psql -d template1 -c \\"ALTER USER postgres WITH PASSWORD '${dbpwd}';\\""
 
-		# Enable password authentication
+		# Force password authentication on local connections
 		sed -i -e '/^host\s*/s/ident/md5/g' -e '/^local\s*/s/peer/md5/g' /var/lib/pgsql/${dbversion}/data/pg_hba.conf
+		# Allow remote password authentication
+		cat <<- EOM >> /var/lib/pgsql/${dbversion}/data/pg_hba.conf
+		# IPV4 remote connections:
+		host	all		all		0.0.0.0/0		md5
+		host	all		all		::/0			md5
+		EOM
+		sed -i -e '/listen_addresses\s*/s/localhost/*/g' -e '/listen_addresses\s*/s/^#//g' /var/lib/pgsql/${dbversion}/data/postgresql.conf
+		# Allow TLS connection when clients request it
+		sed -i -e '/ssl\s*=/s/off/on/g' -e '/ssl\s*=/s/^#//g' /var/lib/pgsql/${dbversion}/data/postgresql.conf
+		# TODO: use our own X.509 certificate (signed by our own CA)
+		cat /etc/pki/tls/private/localhost.key > /var/lib/pgsql/${dbversion}/data/server.key
+		cat /etc/pki/tls/certs/localhost.crt > /var/lib/pgsql/${dbversion}/data/server.crt
+		chown postgres:postgres /var/lib/pgsql/${dbversion}/data/server.{key,crt}
+		chmod 400 /var/lib/pgsql/${dbversion}/data/server.{key,crt}
 		# Restart PostgreSQL to apply configuration changes
 		systemctl restart postgresql-${dbversion}
 
 		# Configure phpPgAdmin (allow only through HTTPS; allow from localhost and our networks only)
-		# TODO: verify with newer conditional (Apache 2.2/2.4) and IPv6-too configuration
-		sed -i -e 's/^\\(\\s*\\)\\(Order\\s*\\).*\\\$/\\1\\2allow,deny/' -e "/^\\\\s*Allow\\\\s*from\\\\s*127\\\\.0\\\\.0\\\\.1/s>127\\\\.0\\\\.0\\\\.1.*\\$>${allowed_addr}>" -e "/^\\\\s*Require\\\\s*local/s>local.*\\$>ip ${allowed_addr}>" -e 's>^\\(\\s*\\)\\(Allow\\s*from\\|Require\\s*ip\\)\\(\\s*127\\.0\\.0\\.1.*\\)\$>\\1\\2\\3\\n\\1RewriteEngine On\\n\\1RewriteCond %{HTTPS} !=on\\n\\1RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]>' /etc/httpd/conf.d/phpPgAdmin.conf
+		sed -i -e 's/^\\(\\s*\\)\\(Order\\s*\\).*\\\$/\\1\\2allow,deny/' -e "/^\\\\s*Allow\\\\s*from\\\\s*127\\\\.0\\\\.0\\\\.1/s>127\\\\.0\\\\.0\\\\.1.*\$>${allowed_addr}>" -e "/^\\\\s*Require\\\\s*local/s>local.*\\$>ip ${allowed_addr}>" -e 's;^\\(\\s*\\)\\(<IfModule\\s*mod_authz_core\\.c>.*\\)\$;\\1RewriteEngine On\\n\\1RewriteCond %{HTTPS} !=on\\n\\1RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]\\n\\1\\2;' /etc/httpd/conf.d/phpPgAdmin.conf
 		# Add Apache alias for phpPgAdmin
 		cat <<- EOM >> /etc/httpd/conf.d/phpPgAdmin.conf
 
 		Alias /sql /usr/share/phpPgAdmin
 
 		<Location /sql>
+		    RewriteEngine On
+		    RewriteCond %{HTTPS} !=on
+		    RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]
 		    <IfModule mod_authz_core.c>
 		        # Apache 2.4
 		        Require ip ${allowed_addr}
@@ -1178,7 +1269,8 @@ case "${dbtype}" in
 		# Initialize MySQL
 		mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
 
-		# Use our own X.509 certificate for Percona Server
+		# Prepare for TLS connection when clients request it
+		# TODO: use our own X.509 certificate (signed by our own CA)
 		# Note: configuration performed here to leave /var/lib/mysql empty before initialization
 		cat /etc/pki/tls/private/localhost.key > /var/lib/mysql/private_key.pem
 		openssl rsa -in /etc/pki/tls/private/localhost.key -pubout > /var/lib/mysql/public_key.pem
@@ -1191,13 +1283,13 @@ case "${dbtype}" in
 
 		# Configure MySQL root password
 		/usr/bin/mysql --user=root <<- EOM
-		SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${root_password}');
+		SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${dbpwd}');
 		EOM
 
 		# Configure mysqladmin utility for a password-protected root account
 		cat <<- EOM > /root/.my.cnf
 		[mysqladmin]
-		password = ${root_password}
+		password = ${dbpwd}
 		user= root
 		EOM
 		chmod 600 /root/.my.cnf
@@ -1205,7 +1297,7 @@ case "${dbtype}" in
 		# Configure mytop utility for a password-protected root account
 		cat <<- EOM > /root/.mytop
 		user=root
-		pass=${root_password}
+		pass=${dbpwd}
 		host=localhost
 		db=mysql
 		delay=5
@@ -1219,13 +1311,16 @@ case "${dbtype}" in
 		chmod 600 /root/.mytop
 
 		# Configure phpMyAdmin (allow only through HTTPS; allow from localhost and our networks only)
-		sed -i -e 's/^\\(\\s*\\)\\(Order\\s*\\).*\\\$/\\1\\2allow,deny/' -e "/^\\\\s*Allow\\\\s*from\\\\s*127\\\\.0\\\\.0\\\\.1/s>127\\\\.0\\\\.0\\\\.1.*\\$>${allowed_addr}>" -e "/^\\\\s*Require\\\\s*local/s>local.*\\$>ip ${allowed_addr}>" -e 's%^\\(\\s*\\)\\(<IfModule\\s*mod_authz_core.c>.*\\)\$%\\1RewriteEngine On\\n\\1RewriteCond %{HTTPS} !=on\\n\\1RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]%\\n\\1\\2' /etc/httpd/conf.d/phpMyAdmin.conf
+		sed -i -e 's/^\\(\\s*\\)\\(Order\\s*\\).*\\\$/\\1\\2allow,deny/' -e "/^\\\\s*Allow\\\\s*from\\\\s*127\\\\.0\\\\.0\\\\.1/s>127\\\\.0\\\\.0\\\\.1.*\\$>${allowed_addr}>" -e "/^\\\\s*Require\\\\s*local/s>local.*\\$>ip ${allowed_addr}>" -e 's;^\\(\\s*\\)\\(<IfModule\\s*mod_authz_core\\.c>.*\\)\$;\\1RewriteEngine On\\n\\1RewriteCond %{HTTPS} !=on\\n\\1RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]\\n\\1\\2;' /etc/httpd/conf.d/phpMyAdmin.conf
 		# Add Apache alias for phpMyAdmin
 		cat <<- EOM >> /etc/httpd/conf.d/phpMyAdmin.conf
 
 		Alias /sql /usr/share/phpMyAdmin
 
 		<Location /sql>
+		    RewriteEngine On
+		    RewriteCond %{HTTPS} !=on
+		    RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]
 		    <IfModule mod_authz_core.c>
 		        # Apache 2.4
 		        Require ip ${allowed_addr}
@@ -1243,19 +1338,33 @@ case "${dbtype}" in
 		systemctl restart httpd
 		;;
 	firebird)
-		# No initialization needed for Firebird
-		true
+		# Change default Firebird superuser password
+		# Note: no TLS support available for Firebird
+		gsec -user sysdba -pass masterkey -mo sysdba -pw '${dbpwd}'
 		;;
 	mongodb)
-		# No initialization needed for MongoDB
+		# TODO: Perform initial setup for MongoDB as per https://docs.mongodb.com/manual/tutorial/install-mongodb-on-red-hat/
+		# TODO: Perform security setup for MongoDB as per https://docs.mongodb.com/manual/administration/security-checklist/
+		# TODO: enable TLS support for MongoDB as per https://docs.mongodb.com/manual/tutorial/configure-ssl/#configure-ssl
 		true
 		;;
 	sqlserver)
 		# Initialize SQLServer
 		# Note: 3.25 GiB RAM are absolutely required
 		# TODO: verify editions/licensing, language/collation and paths
-		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD='${root_password}' /opt/mssql/bin/mssql-conf -n setup
-		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD='${root_password}' /opt/mssql/bin/mssql-conf -n set sqlagent.enabled true
+		# TODO: configure Kerberos auth setting network.kerberoskeytabfile
+		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD='${dbpwd}' /opt/mssql/bin/mssql-conf -n setup
+		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD='${dbpwd}' /opt/mssql/bin/mssql-conf -n set sqlagent.enabled true
+
+		# Prepare for TLS connection when clients request it
+		# TODO: use our own X.509 certificate (signed by our own CA)
+		cat /etc/pki/tls/private/localhost.key > /var/opt/mssql/mssql.key
+		openssl rsa -in /etc/pki/tls/private/localhost.key -pubout > /var/opt/mssql/mssql.pem
+		chown mssql:mssql /var/opt/mssql/mssql.{key,pem}
+		chmod 400 /var/opt/mssql/mssql.{key,pem}
+		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD='${dbpwd}' /opt/mssql/bin/mssql-conf -n set network.tlscert /var/opt/mssql/mssql.pem
+		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD='${dbpwd}' /opt/mssql/bin/mssql-conf -n set network.tlskey /var/opt/mssql/mssql.key
+		MSSQL_PID=Developer ACCEPT_EULA=Y MSSQL_SA_PASSWORD='${dbpwd}' /opt/mssql/bin/mssql-conf -n set network.tlsprotocols 1.2
 
 		# Initialize SQLServer Integration Services
 		# TODO: verify editions/licensing
@@ -1292,7 +1401,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2019032801"
+script_version="2019122401"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1336,40 +1445,43 @@ cat /etc/hosts >> /tmp/post.out
 
 # Hardcoded defaults
 
-unset network
-unset netmask
-unset network_base
-unset mtu
-unset domain_name
-unset reverse_domain_name
-unset test_ip
 unset multi_instance_max
 unset nicmacfix
+unset my_smtpserver
+unset use_smtps
 unset dbtype
 unset dbversion
+unset dbpwd
 unset notification_receiver
+unset local_timezone
 unset yum_sleep_time
 unset yum_retries
+unset custom_yum_conf
 unset hvp_repo_baseurl
 unset hvp_repo_gpgkey
 
 # Define associative arrays
-declare -A network netmask network_base mtu
-declare -A domain_name
-declare -A reverse_domain_name
-declare -A test_ip
 declare -A hvp_repo_baseurl
 declare -A hvp_repo_gpgkey
 
+my_smtpserver=""
+
+use_smtps="false"
+
 nicmacfix="false"
+
+local_timezone="UTC"
 
 multi_instance_max="9"
 
 dbtype="postgresql"
-dbversion="9.6"
+dbversion="11"
+dbpwd="HVP_dem0"
 
 yum_sleep_time="10"
 yum_retries="10"
+
+custom_yum_conf="false"
 
 notification_receiver="monitoring@localhost"
 
@@ -1385,6 +1497,17 @@ yum() {
 	while [ ${result} -ne 0 -a ${retries_left} -gt 0 ]; do
 		sleep ${yum_sleep_time}
 		echo "Retrying yum operation (${retries_left} retries left at $(date '+%Y-%m-%d %H:%M:%S')) after failure (exit code ${result})" 1>&2
+		# Note: it seems that NetworkManager may break down if updated inside chroot - attempting workaround here
+		nmcli dev
+		nmcli connection
+		nmcli connection reload
+		nmcli dev
+		nmcli connection
+		# Note: adding resolution/ping of some well-known public hosts to force wake-up of buggy DNS/gateway implementations (VMware Workstation 12 suspected)
+		for target in www.google.com www.centos.org mirrorlist.centos.org ; do
+			/bin/nslookup "${target}"
+			/bin/ping -c 4 "${target}"
+		done
 		# Note: adding a complete cleanup before retrying
 		/usr/bin/yum clean all
 		/usr/bin/yum "$@"
@@ -1424,6 +1547,12 @@ if echo "${given_multi_instance_max}" | grep -q '^[[:digit:]]\+$' ; then
 	multi_instance_max="${given_multi_instance_max}"
 fi
 
+# Determine local timezone
+given_local_timezone=$(sed -n -e "s/^.*hvp_timezone=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_local_timezone}" ]; then
+	local_timezone="${given_local_timezone}"
+fi
+
 # Determine database type
 given_dbtype=$(sed -n -e 's/^.*hvp_dbtype=\(\S*\).*$/\1/p' /proc/cmdline)
 case "${given_dbtype}" in
@@ -1437,10 +1566,10 @@ given_dbversion=$(sed -n -e 's/^.*hvp_dbversion=\(\S*\).*$/\1/p' /proc/cmdline)
 if [ -n "${given_dbversion}" ]; then
 	dbversion="${given_dbversion}"
 fi
-if [ -z "${dbversion}" -o "${dbtype}" != "postgresql" -a "${dbversion}" = "9.6" ]; then
+if [ -z "${dbversion}" -o "${dbtype}" != "postgresql" -a "${dbversion}" = "11" ]; then
 	case "${dbtype}" in
 		postgresql)
-			dbversion="9.6"
+			dbversion="11"
 			;;
 		mysql)
 			dbversion="5.7"
@@ -1457,6 +1586,12 @@ if [ -z "${dbversion}" -o "${dbtype}" != "postgresql" -a "${dbversion}" = "9.6" 
 	esac
 fi
 
+# Determine database superuser password
+given_dbpwd=$(sed -n -e "s/^.*hvp_dbpwd=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_dbpwd}" ]; then
+	dbpwd="${given_dbpwd}"
+fi
+
 # Determine number of Yum retries on failure
 given_yum_retries=$(sed -n -e 's/^.*hvp_yum_retries=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_yum_retries}" | grep -q '^[[:digit:]]\+$' ; then
@@ -1469,10 +1604,51 @@ if echo "${given_yum_sleep_time}" | grep -q '^[[:digit:]]\+$' ; then
 	yum_sleep_time="${given_yum_sleep_time}"
 fi
 
+# Determine custom URLs for repositories and GPG keys
+for repo_name in $(egrep -o 'hvp_[^=]*_(baseurl|gpgkey)' /proc/cmdline | sed -e 's/^hvp_//' -e 's/_baseurl$//' -e 's/_gpgkey$//' | sort -u); do
+	# Take URLs from kernel commandline
+	given_repo_baseurl=$(sed -n -e "s/^.*hvp_${repo_name}_baseurl=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+	if [ -n "${given_repo_baseurl}" ]; then
+		# Correctly detect an empty (disabled) repo URL
+		if [ "${given_repo_baseurl}" = '""' -o "${given_repo_baseurl}" = "''" ]; then
+			unset hvp_repo_baseurl[${repo_name}]
+		else
+			hvp_repo_baseurl[${repo_name}]="${given_repo_baseurl}"
+		fi
+	fi
+	given_repo_gpgkey=$(sed -n -e "s/^.*hvp_${repo_name}_gpgkey=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+	if [ -n "${given_repo_gpgkey}" ]; then
+		# Correctly detect an empty (disabled) gpgkey URL
+		if [ "${given_repo_gpgkey}" = '""' -o "${given_repo_gpgkey}" = "''" ]; then
+			unset hvp_repo_gpgkey[${repo_name}]
+		else
+			hvp_repo_gpgkey[${repo_name}]="${given_repo_gpgkey}"
+		fi
+	fi
+done
+# Verify whether a custom conf has been established (either from commandline parsing or from parameter configuration files)
+url_count="${#hvp_repo_baseurl[@]}"
+key_count="${#hvp_repo_gpgkey[@]}"
+ref_count=$((url_count + key_count))
+if [ "${ref_count}" -gt 1 ]; then
+	custom_yum_conf="true"
+fi
+
 # Determine notification receiver email address
 given_receiver_email=$(sed -n -e "s/^.*hvp_receiver_email=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_receiver_email}" ]; then
 	notification_receiver="${given_receiver_email}"
+fi
+
+# Determine SMTP server address
+given_smtpserver=$(sed -n -e "s/^.*hvp_smtpserver=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_smtpserver}" ]; then
+	my_smtpserver="${given_smtpserver}"
+fi
+
+# Determine choice of forcing SMTPS
+if grep -w -q 'hvp_smtps' /proc/cmdline ; then
+	use_smtps="true"
 fi
 
 # Create /dev/root symlink for grubby (must differentiate for use of LVM or MD based "/")
@@ -1495,51 +1671,32 @@ ln -sf $rootdisk /dev/root
 rm -rf /var/cache/yum/*
 yum --enablerepo '*' clean all
 
-# Comment out mirrorlist directives and uncomment the baseurl ones to make better use of proxy caches
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
 # Note: done here to cater for those repos already installed by default
-for repofile in /etc/yum.repos.d/*.repo; do
-	if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
-		sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
-		sed -i -e 's/^metalink/#metalink/g' "${repofile}"
-		sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
-	fi
-done
-# Disable fastestmirror yum plugin too
-sed -i -e 's/^enabled.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
-
-# Allow specifying custom base URLs for repositories and GPG keys
-# Note: done here to cater for those repos already installed by default
-for repo_name in $(yum repolist all -v 2>/dev/null | awk '/Repo-id/ {print $3}' | sed -e 's>/.*$>>g'); do
-	# Take URLs from parameters files or hardcoded defaults
-	repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
-	repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
-	# Take URLs from kernel commandline
-	given_repo_baseurl=$(sed -n -e "s/^.*hvp_${repo_name}_baseurl=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_baseurl}" ]; then
-		# Correctly detect an empty (disabled) repo URL
-		if [ "${given_repo_baseurl}" = '""' -o "${given_repo_baseurl}" = "''" ]; then
-			unset repo_baseurl
-		else
-			repo_baseurl="${given_repo_baseurl}"
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
 		fi
-	fi
-	given_repo_gpgkey=$(sed -n -e "s/^.*hvp_${repo_name}_gpgkey=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_gpgkey}" ]; then
-		# Correctly detect an empty (disabled) gpgkey URL
-		if [ "${given_repo_gpgkey}" = '""' -o "${given_repo_gpgkey}" = "''" ]; then
-			unset repo_gpgkey
-		else
-			repo_gpgkey="${given_repo_gpgkey}"
+	done
+	# Disable fastestmirror yum plugin too
+	sed -i -e 's/^enabled.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos already installed by default
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
 		fi
-	fi
-	# Force any custom URLs
-	if [ -n "${repo_baseurl}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
-	fi
-	if [ -n "${repo_gpgkey}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
-	fi
-done
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
 
 # Add YUM priorities plugin
 yum -y install yum-plugin-priorities
@@ -1549,19 +1706,81 @@ yum -y install yum-plugin-priorities
 #yum-config-manager --enable cr > /dev/null
 
 # Add HVP custom repo
-yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-5.noarch.rpm
+# Define proper network source
+hvp_baseurl="https://dangerous.ovirt.life/hvp-repos/el$(rpm -q --queryformat '%{version}' centos-release)/hvp/"
+# Prefer custom HVP repo URL, if any
+if [ -n "${hvp_repo_baseurl['hvp']}" ]; then
+	hvp_baseurl=$(echo "${hvp_repo_baseurl['hvp']}" | sed -e 's/\$releasever/'$(rpm -q --queryformat '%{version}' centos-release)'/g' -e 's/\$basearch/'$(uname -m)'/g')
+fi
+yum -y --nogpgcheck install ${hvp_baseurl}/hvp-release-latest.noarch.rpm
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+		fi
+	done
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos installed above
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+		fi
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
 
-# Add upstream repository definitions
+# Add EPEL repository definition
 yum -y install epel-release
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+		fi
+	done
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos installed above
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+		fi
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
 
-# Add Webmin repo
+# Add Webmin repository definition
+# Define proper network source
+webmin_baseurl="http://download.webmin.com/download/yum/"
+webmin_gpgkey="http://www.webmin.com/jcameron-key.asc"
+# Prefer custom Webmin URLs, if any
+if [ -n "${hvp_repo_baseurl['webmin']}" ]; then
+	webmin_baseurl="${hvp_repo_baseurl['webmin']}"
+fi
+if [ -n "${hvp_repo_gpgkey['webmin']}" ]; then
+	webmin_gpgkey="${hvp_repo_gpgkey['webmin']}"
+fi
 cat << EOF > /etc/yum.repos.d/webmin.repo
 [webmin]
 name = Webmin Distribution Neutral
-baseurl = http://download.webmin.com/download/yum
+baseurl = ${webmin_baseurl}
 gpgcheck = 1
 enabled = 1
-gpgkey = http://www.webmin.com/jcameron-key.asc
+gpgkey = ${webmin_gpgkey}
 skip_if_unavailable = 1
 EOF
 chmod 644 /etc/yum.repos.d/webmin.repo
@@ -1574,95 +1793,145 @@ case "${dbtype}" in
 
 		# Add PostgreSQL upstream repository
 		# TODO: it seems that older release packages get purged - downloading all and installing latest from local - open notification upstream
+		# Define proper network source
+		postgresql_baseurl="https://download.postgresql.org/pub/repos/yum/${dbversion}/redhat/rhel-$(rpm -q --queryformat '%{version}' centos-release)-$(uname -m)/"
+		# Prefer custom PostgreSQL base URL, if any
+		if [ -n "${hvp_repo_baseurl['postgresql']}" ]; then
+			postgresql_baseurl="${hvp_repo_baseurl['postgresql']}"
+		fi
 		mkdir /tmp/pgdg-all
 		pushd /tmp/pgdg-all
-		wget -e robots=off -r -l1 -nd -np "https://download.postgresql.org/pub/repos/yum/${dbversion}/redhat/rhel-7-x86_64/" -A "pgdg-redhat${repoversion}-${dbversion}-*.noarch.rpm"
+		wget -e robots=off -r -l1 -nd -np "${postgresql_baseurl}" -A "pgdg-redhat${repoversion}-${dbversion}-*.noarch.rpm"
 		find . -type f -print0 | sort -z -r | sed -z -n -e '1p' | xargs -0 yum -y install 
 		popd
 		rm -rf /tmp/pgdg-all
-
+		# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+		if [ "${custom_yum_conf}" = "true" ]; then
+			for repofile in /etc/yum.repos.d/*.repo; do
+				if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+					sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+					sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+					sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+				fi
+			done
+			# Allow specifying custom base URLs for repositories and GPG keys
+			# Note: done here to cater for those repos installed above
+			for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+				repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+				repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+				# Force any custom URLs
+				if [ -n "${repo_baseurl}" ]; then
+					yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+				fi
+				if [ -n "${repo_gpgkey}" ]; then
+					yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+				fi
+			done
+		fi
 		;;
 	mysql)
 		# Derive repository version to use
 		repoversion=$(echo "${dbversion}" | sed -e 's/\.//g')
 
 		# Add Percona repository
-		yum -y install https://www.percona.com/redir/downloads/percona-release/redhat/latest/percona-release-0.1-6.noarch.rpm
+		# Define proper network source
+		mysql_baseurl="https://www.percona.com/redir/downloads/percona-release/redhat/latest/"
+		# Prefer custom Percona base URL, if any
+		if [ -n "${hvp_repo_baseurl['mysql']}" ]; then
+			mysql_baseurl="${hvp_repo_baseurl['mysql']}"
+		fi
+		yum -y install "${mysql_baseurl}percona-release-0.1-6.noarch.rpm"
 		# TODO: import the additional Percona GPG key for toolkit - remove when fixed upstream https://jira.percona.com/browse/PT-1685
 		rpm --import /etc/pki/rpm-gpg/PERCONA-PACKAGING-KEY
-
+		# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+		if [ "${custom_yum_conf}" = "true" ]; then
+			for repofile in /etc/yum.repos.d/*.repo; do
+				if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+					sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+					sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+					sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+				fi
+			done
+			# Allow specifying custom base URLs for repositories and GPG keys
+			# Note: done here to cater for those repos installed above
+			for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+				repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+				repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+				# Force any custom URLs
+				if [ -n "${repo_baseurl}" ]; then
+					yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+				fi
+				if [ -n "${repo_gpgkey}" ]; then
+					yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+				fi
+			done
+		fi
 		;;
 	mongodb)
 		# Add MongoDB repository
+		# TODO: switch to Percona MongoDB distribution
+		# Define proper network source
+		mongodb_baseurl="https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/${dbversion}/\$basearch/"
+		mongodb_gpgkey="https://www.mongodb.org/static/pgp/server-${dbversion}.asc"
+		# Prefer custom MongoDB URLs, if any
+		if [ -n "${hvp_repo_baseurl[mongodb-org-${dbversion}]}" ]; then
+			mongodb_baseurl="${hvp_repo_baseurl[mongodb-org-${dbversion}]}"
+		fi
+		if [ -n "${hvp_repo_gpgkey[mongodb-org-${dbversion}]}" ]; then
+			mongodb_gpgkey="${hvp_repo_gpgkey[mongodb-org-${dbversion}]}"
+		fi
 		cat <<- EOF > /etc/yum.repos.d/mongodb-org-${dbversion}.repo
 		[mongodb-org-${dbversion}]
 		name=MongoDB Repository
-		baseurl=https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/${dbversion}/\$basearch/
+		baseurl=${mongodb_baseurl}
 		gpgcheck=1
 		enabled=1
-		gpgkey=https://www.mongodb.org/static/pgp/server-${dbversion}.asc
+		gpgkey=${mongodb_gpgkey}
 		EOF
 		chmod 644 /etc/yum.repos.d/mongodb-org-${dbversion}.repo
-
 		;;
 	sqlserver)
 		# Determine desired version
 		repoversion=$(echo "${dbversion}" | sed -e 's/\./-/g' -e 's/^\(.*\)$/\L\1/g' -e 's/-cu//g')
 
 		# Add Microsoft repositories
-		wget -O /etc/yum.repos.d/mssql-server.repo https://packages.microsoft.com/config/rhel/7/mssql-server-${repoversion}.repo
+		# Define proper network source
+		mssql_baseurl="https://packages.microsoft.com/config/rhel/$(rpm -q --queryformat '%{version}' centos-release)/"
+		# Prefer custom Microsoft base URL, if any
+		if [ -n "${hvp_repo_baseurl['mssql']}" ]; then
+			mssql_baseurl="${hvp_repo_baseurl['mssql']}"
+		fi
+		wget -O /etc/yum.repos.d/mssql-server.repo "${mssql_baseurl}mssql-server-${repoversion}.repo"
 		chmod 644 /etc/yum.repos.d/mssql-server.repo
 		chown root:root /etc/yum.repos.d/mssql-server.repo
-		wget -O /etc/yum.repos.d/msprod.repo https://packages.microsoft.com/config/rhel/7/prod.repo
+		wget -O /etc/yum.repos.d/msprod.repo "${mssql_baseurl}prod.repo"
 		chmod 644 /etc/yum.repos.d/msprod.repo
 		chown root:root /etc/yum.repos.d/msprod.repo
-
+		# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+		if [ "${custom_yum_conf}" = "true" ]; then
+			for repofile in /etc/yum.repos.d/*.repo; do
+				if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+					sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+					sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+					sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+				fi
+			done
+			# Allow specifying custom base URLs for repositories and GPG keys
+			# Note: done here to cater for those repos installed above
+			for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+				repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+				repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+				# Force any custom URLs
+				if [ -n "${repo_baseurl}" ]; then
+					yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+				fi
+				if [ -n "${repo_gpgkey}" ]; then
+					yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+				fi
+			done
+		fi
 		;;
 esac
-
-# Comment out mirrorlist directives and uncomment the baseurl ones to make better use of proxy caches
-# Note: repeated here to allow applying to further repos installed above
-for repofile in /etc/yum.repos.d/*.repo; do
-	if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
-		sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
-		sed -i -e 's/^metalink/#metalink/g' "${repofile}"
-		sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
-	fi
-done
-
-# Allow specifying custom base URLs for repositories and GPG keys
-# Note: repeated here to allow applying to further repos installed above
-for repo_name in $(yum repolist all -v 2>/dev/null | awk '/Repo-id/ {print $3}' | sed -e 's>/.*$>>g'); do
-	# Take URLs from parameters files or hardcoded defaults
-	repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
-	repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
-	# Take URLs from kernel commandline
-	given_repo_baseurl=$(sed -n -e "s/^.*hvp_${repo_name}_baseurl=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_baseurl}" ]; then
-		# Correctly detect an empty (disabled) repo URL
-		if [ "${given_repo_baseurl}" = '""' -o "${given_repo_baseurl}" = "''" ]; then
-			unset repo_baseurl
-		else
-			repo_baseurl="${given_repo_baseurl}"
-		fi
-	fi
-	given_repo_gpgkey=$(sed -n -e "s/^.*hvp_${repo_name}_gpgkey=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_gpgkey}" ]; then
-		# Correctly detect an empty (disabled) gpgkey URL
-		if [ "${given_repo_gpgkey}" = '""' -o "${given_repo_gpgkey}" = "''" ]; then
-			unset repo_gpgkey
-		else
-			repo_gpgkey="${given_repo_gpgkey}"
-		fi
-	fi
-	# Force any custom URLs
-	if [ -n "${repo_baseurl}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
-	fi
-	if [ -n "${repo_gpgkey}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
-	fi
-done
 
 # Enable use of delta rpms since we are not using a local mirror
 # Note: this may introduce HTTP 416 errors - better leave this to post-installation manual choices
@@ -1675,6 +1944,7 @@ rm -rf /var/cache/yum/*
 yum --enablerepo '*' clean all
 
 # Update OS (with "upgrade" to allow package obsoletion) non-interactively ("-y" yum option)
+# Note: any repo file involved in release package upgrades would be in .rpmnew so no need to reapply customizations now
 yum -y upgrade
 
 # TODO: Make sure that the latest installed kernel is the default
@@ -1831,6 +2101,34 @@ yum --enablerepo '*' clean all
 # Remove package update leftovers
 find /etc -type f -name '*.rpmnew' -exec rename .rpmnew "" '{}' ';'
 find /etc -type f -name '*.rpmsave' -exec rm -f '{}' ';'
+
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+# Note: done here to cater for modified repos from the upgrade above
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+		fi
+	done
+	# Reapply all yum settings
+	sed -i -e 's/^enabled.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
+	yum-config-manager --save --setopt='deltarpm=0' > /dev/null
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos already installed by default
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+		fi
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
 
 # Now configure the base OS
 # TODO: Decide which part to configure here and which part to demand to Ansible
@@ -2002,15 +2300,21 @@ sed -i -e 's/^SYNC_HWCLOCK=.*$/SYNC_HWCLOCK="yes"/' /etc/sysconfig/ntpdate
 mkdir -p /etc/selinux/local
 cat << EOF > /etc/selinux/local/myntpdate.te
 
-module myntpdate 8.0;
+module myntpdate 9.0;
 
 require {
+        type chronyc_t;
+        type kernel_t;
         type ntpd_t;
         type hwclock_exec_t;
         type adjtime_t;
+        class system module_request;
         class file { open read write execute execute_no_trans getattr };
         class netlink_audit_socket create;
 }
+
+#============= chronyc_t ==============
+allow chronyc_t kernel_t:system module_request;
 
 #============= ntpd_t ==============
 allow ntpd_t hwclock_exec_t:file { open read execute execute_no_trans getattr };
@@ -2095,6 +2399,55 @@ Continued use of this computer implies acceptance of the above conditions.
 EOF
 chmod 644 /etc/{issue*,motd}
 
+# Configure SMTP relay
+if [ -n "${my_smtpserver}" ]; then
+	if [ "${use_smtps}" = "true" ]; then
+		# Configure SMTPS smart host by means of systemd-controlled stunnel service
+		# Note: no service section is allowed in inetd mode
+		cat <<- EOF > /etc/stunnel/relay-smtps.conf
+		setuid = nobody
+		setgid = nobody
+		pid =
+		client = yes
+		connect = ${my_smtpserver}:465
+		fips = no
+		EOF
+		chmod 644 /etc/stunnel/relay-smtps.conf
+		# Configure relay-smtps as a systemd-controlled socket-activated service
+		# Note: Accept=yes (inetd-style) forces us to create a template service below
+		cat <<- EOF > /etc/systemd/system/relay-smtps.socket
+		[Socket]
+		ListenStream=127.0.0.1:11125
+		Accept=yes
+		
+		[Install]
+		WantedBy=sockets.target
+		EOF
+		chmod 644 /etc/systemd/system/relay-smtps.socket
+		# Note: inetd-style means that stdin/stdout must go through socket
+		# TODO: modify to run unprivileged (use nobody here and remove setuid/setgid from stunnel configuration above)
+		cat <<- EOF > /etc/systemd/system/relay-smtps@.service
+		[Service]
+		ExecStart=/usr/bin/stunnel /etc/stunnel/relay-smtps.conf
+		StandardInput=socket
+		Type=forking
+		User=root
+		PrivateTmp=true
+		EOF
+		chmod 644 /etc/systemd/system/relay-smtps@.service
+		
+		# Enable relay-smtps as a systemd-controlled socket-activated service
+		systemctl enable relay-smtps.socket
+		
+		# Relay Postfix client connections through stunnel
+		postconf -e 'smtp_use_tls = no'
+		postconf -e 'relayhost = [127.0.0.1]:11125'
+	else
+		# Directly relay through the specified server
+		postconf -e "relayhost = ${my_smtpserver}"
+	fi
+fi
+
 # Enable persistent Journal logs
 mkdir -p /var/log/journal
 
@@ -2138,7 +2491,7 @@ chmod 640 /var/log/{messages,secure,cron,maillog,spooler}
 
 # Configure ABRTd
 # Allow reports for signed packages from 3rd-party repos by adding their keys under /etc/pki/rpm-gpg/
-for repokeyurl in $(grep -h '^gpgkey' /etc/yum.repos.d/*.repo | grep -v 'file:///' | sed -e 's/^gpgkey\s*=\s*//' -e 's/\s*$//' -e 's/\$releasever/'$(rpm -q --queryformat '%{version}\n' centos-release)'/g' | sort | uniq); do
+for repokeyurl in $(grep -h '^gpgkey' /etc/yum.repos.d/*.repo | grep -v 'file:///' | sed -e 's/^gpgkey\s*=\s*//' -e 's/\s*$//' -e 's/\$releasever/'$(rpm -q --queryformat '%{version}' centos-release)'/g' | sort | uniq); do
 	key_file="$(echo ${repokeyurl} | sed -e 's%^.*/\([^/]*\)$%\1%')"
 	if [ ! -f "/etc/pki/rpm-gpg/${key_file}" ]; then
 		wget -P /etc/pki/rpm-gpg/ "${repokeyurl}"
@@ -2182,7 +2535,7 @@ cat << EOF | openssl req -new -sha256 -key /etc/pki/tls/private/localhost.key -x
 IT
 Lombardia
 Bergamo
-FleurFlower
+HVP
 Heretic oVirt Project Demo Infrastructure
 ${HOSTNAME}
 root@${HOSTNAME}
@@ -2332,6 +2685,7 @@ chmod 644 /var/www/html/index.html
 
 # Enable Apache
 firewall-offline-cmd --add-service=http
+firewall-offline-cmd --add-service=https
 systemctl enable httpd
 
 # Configure Webmin
@@ -2453,23 +2807,27 @@ fi
 case "${dbtype}" in
 	postgresql)
 		# Define data dump command
-		dbdump="PGPASSWORD='${root_password}' pg_dumpall -v -U postgres -f /var/local/backup/\${prefix}-\${content}.sql > /var/local/backup/\${prefix}-\${content}.log 2>&1"
+		dbdump="PGPASSWORD='${dbpwd}' pg_dumpall -v -U postgres -w -f /var/local/backup/\${prefix}-\${content}.sql > /var/local/backup/\${prefix}-\${content}.log 2>&1"
 		# Configure firewall
 		firewall-offline-cmd --add-service=postgresql
 
-		# TODO: Customize PostgreSQL configuration
+		# Note: PostgreSQL configuration needs the DB to be initialized first and is demanded to rc.db-provision invoked by rc.ks1stboot
 
 		# Disable PostgreSQL
 		# Note: it needs manual initialization before starting
 		systemctl disable postgresql-${dbversion}
 
+		# Configure PHP (set timezone, increase execution time and memory/request/filesize limits)
+		sed -i -e 's/^\(.*max_execution_time\).*$/\1 = 3600/' -e 's/^\(.*memory_limit\).*$/\1 = 800M/' -e 's/^\(.*post_max_size\).*$/\1 = 400M/' -e 's/^\(.*upload_max_filesize\).*$/\1 = 500M/' -e "s>^.*date\\.timezone\\s*=.*\$>date.timezone = ${local_timezone}>" /etc/php.ini
+
 		# Enable access through phpPgAdmin
 		# Note: further phpPgAdmin access control configuration performed in rc.db-provision script
+		cp -a /etc/phpPgAdmin/config.inc.php-dist /etc/phpPgAdmin/config.inc.php
 		sed -i -e "/extra_login_security/s/true/false/" /etc/phpPgAdmin/config.inc.php
 		;;
 	mysql)
 		# Define data dump command
-		dbdump="mysqldump --verbose --opt --user=root --password '${root_password}' --all-databases --events --routines --triggers --result-file=/var/local/backup/\${prefix}-\${content}.sql > /var/local/backup/\${prefix}-\${content}.log 2>&1"
+		dbdump="mysqldump --verbose --opt --user=root --password '${dbpwd}' --all-databases --events --routines --triggers --result-file=/var/local/backup/\${prefix}-\${content}.sql > /var/local/backup/\${prefix}-\${content}.log 2>&1"
 		# Configure firewall
 		firewall-offline-cmd --add-service=mysql
 
@@ -2597,6 +2955,9 @@ case "${dbtype}" in
 		restorecon -v /var/log/mysqld.log
 		sed -i -e 's%^/var/lib/mysql/mysqld.log%/var/log/mysqld.log /var/log/mysqld-slow.log%' -e 's/^\(\s*\)postrotate.*$/\1sharedscripts\n\1postrotate/' /etc/logrotate.d/mysql
 		
+		# Configure PHP (set timezone, increase execution time and memory/request/filesize limits)
+		sed -i -e 's/^\(.*max_execution_time\).*$/\1 = 3600/' -e 's/^\(.*memory_limit\).*$/\1 = 800M/' -e 's/^\(.*post_max_size\).*$/\1 = 400M/' -e 's/^\(.*upload_max_filesize\).*$/\1 = 500M/' -e "s>^.*date\\.timezone\\s*=.*\$>date.timezone = ${local_timezone}>" /etc/php.ini
+
 		# Enable access through phpMyAdmin
 		# Note: further phpMyAdmin access control configuration performed in rc.db-provision script
 		# Note: using haveged to ensure enough entropy (but rngd could be already running from installation environment)
@@ -2614,7 +2975,8 @@ case "${dbtype}" in
 	firebird)
 		# Define data dump command
 		# TODO: find a way to generalize database selection
-		dbdump='gback -b -v -t -user sysdba -password masterkey -y /var/local/backup/${prefix}-${content}-employee.log employee /var/local/backup/${prefix}-${content}-employee.fbk'
+		db2backup="employee"
+		dbdump="gback -b -v -t -user sysdba -password '${dbpwd}' -y /var/local/backup/\${prefix}-\${content}-${db2backup}.log ${db2backup} /var/local/backup/\${prefix}-\${content}-${db2backup}.fbk"
 		# Configure firewall
 		cat <<- EOF > /etc/firewalld/services/firebird.xml
 		<?xml version="1.0" encoding="utf-8"?>
@@ -2667,7 +3029,8 @@ case "${dbtype}" in
 	sqlserver)
 		# Define data dump command
 		# TODO: find a way to generalize database selection
-		dbdump="sqlcmd -S localhost -U SA -P '${root_password}' -Q \"BACKUP DATABASE [demodb] TO DISK = N'/var/local/backup/\${prefix}-\${content}-demodb.bak' WITH NOFORMAT, NOINIT, NAME = N'demodb-full', SKIP, NOREWIND, NOUNLOAD, STATS = 10\" > /var/local/backup/${prefix}-${content}-demodb.log 2>&1"
+		db2backup="demodb"
+		dbdump="sqlcmd -S localhost -U SA -P '${dbpwd}' -Q \"BACKUP DATABASE [${db2backup}] TO DISK = N'/var/local/backup/\${prefix}-\${content}-${db2backup}.bak' WITH NOFORMAT, NOINIT, NAME = N'${db2backup}-full', SKIP, NOREWIND, NOUNLOAD, STATS = 10\" > /var/local/backup/\${prefix}-\${content}-${db2backup}.log 2>&1"
 		# Configure firewall
 		cat <<- EOF > /etc/firewalld/services/mssql.xml
 		<?xml version="1.0" encoding="utf-8"?>
@@ -2842,6 +3205,7 @@ pushd /etc/selinux/local
 checkmodule -M -m -o myks1stboot.mod myks1stboot.te
 semodule_package -o myks1stboot.pp -m myks1stboot.mod
 semodule -i myks1stboot.pp
+popd
 
 # Set up "first-boot" configuration script (steps that require a fully up system)
 cat << EOF > /etc/rc.d/rc.ks1stboot
@@ -2880,12 +3244,29 @@ elif dmidecode -s system-manufacturer | grep -q 'Xen' ; then
 	rm -f xe-guest-utilities*.rpm
 elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
 	# Note: VMware basic support uses distro-provided packages installed during post phase
-	# TODO: adding _netdev to break possible systemd ordering cycle - investigate further and remove it
-	mkdir -p /mnt/hgfs
-	cat <<- EOM >> /etc/fstab
-	.host:/	/mnt/hgfs	fuse.vmhgfs-fuse	allow_other,auto_unmount,_netdev,x-systemd.requires=vmtoolsd.service,defaults	0 0
+	# Note: adding nofail to avoid making it fail the remote-fs.target if unavailable
+	# TODO: adding network dependency to break possible systemd ordering cycle - investigate further and remove it
+	cat <<- EOM > /etc/systemd/system/mnt-hgfs.mount
+	[Unit]
+	Description=VMware shared folders
+	After=network.target network-online.target vmtoolsd.service
+	Requires=network.target network-online.target vmtoolsd.service
+	Before=multi-user.target
+	Conflicts=umount.target
+	
+	[Mount]
+	What=.host:/
+	Where=/mnt/hgfs
+	Type=fuse.vmhgfs-fuse
+	Options=allow_other,auto_unmount,nofail
+	TimeoutSec=50s
+	
+	[Install]
+	WantedBy=multi-user.target
 	EOM
-	mount /mnt/hgfs
+	chmod 644 /etc/systemd/system/mnt-hgfs.mount
+	systemctl daemon-reload
+	systemctl --now enable mnt-hgfs.mount
 	need_reboot="no"
 elif dmidecode -s system-manufacturer | grep -q "innotek" ; then
 	wget https://dangerous.ovirt.life/support/VirtualBox/VBoxLinuxAdditions.run
@@ -2967,8 +3348,11 @@ check_ip="\$(dig \${current_name}.\${target_domain} A +short)"
 if [ -n "\${check_ip}" -a "\${check_ip}" != "\${main_ip}" ]; then
 	# Name does not match: modify (starting from suffix 2) and resolve it till it is either unknown or matching with configured IP
 	tentative_name_found="false"
+	current_base_name=\$(echo \${current_name} | sed -e 's/-[^-]*\$//')
+	current_name_suffix=\$(echo \${current_name} | sed -n -e 's/^.*\\(-[^-]*\\)\$/\\1/p')
 	for ((name_increment=2;name_increment<=\${multi_instance_max}+1;name_increment=name_increment+1)); do
-		tentative_name="\${current_name}\${name_increment}"
+		# In case of decorated names use increment only on the base name
+		tentative_name="\${current_base_name}\${name_increment}\${current_name_suffix}"
 		check_ip="\$(dig \${tentative_name}.\${target_domain} A +short)"
 		if [ -z "\${check_ip}" -o "\${check_ip}" = "\${main_ip}" ]; then
 			tentative_name_found="true"
@@ -2981,6 +3365,23 @@ if [ -n "\${check_ip}" -a "\${check_ip}" != "\${main_ip}" ]; then
 		# Modify already saved entries
 		# Note: names on secondary zones are kept aligned
 		sed -i -e "s/\\b\${current_name}\\b/\${tentative_name}/g" /etc/hosts
+		# Prepare default (self-signed) certificate
+		# Note: certificate must be recreated to reflect new hostname
+		openssl genrsa 2048 > /etc/pki/tls/private/localhost.key
+		cat <<- EOM | openssl req -new -sha256 -key /etc/pki/tls/private/localhost.key -x509 -days 3650 -out /etc/pki/tls/certs/localhost.crt
+		IT
+		Lombardia
+		Bergamo
+		HVP
+		Heretic oVirt Project Demo Infrastructure
+		\$(hostname)
+		root@\$(hostname)
+		EOM
+		cat /etc/pki/tls/dhparams.pem >> /etc/pki/tls/certs/localhost.crt
+		# Restart services to pick up new certificates
+		cat /etc/pki/tls/private/localhost.key > /etc/webmin/miniserv.pem
+		cat /etc/pki/tls/certs/localhost.crt >> /etc/webmin/miniserv.pem
+		systemctl restart webmin httpd
 	fi
 fi
 
