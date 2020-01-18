@@ -5,7 +5,8 @@ nicmacfix="false"
 
 # Note: if you change DB type but leave DB version untouched, it will be reset to the default for the chosen DB type
 dbtype="postgresql"
-dbversion="9.6"
+dbversion="11"
+dbpwd="HVP_dem0"
 
 # Note: for the following values, either the IPs or the offset is enough, but we will list here both as an example
 test_ip_offset="1"
@@ -41,6 +42,12 @@ domain_join="false"
 my_nameserver="8.8.8.8"
 
 my_name="bigmcintosh"
+
+my_ntpservers="0.centos.pool.ntp.org,1.centos.pool.ntp.org,2.centos.pool.ntp.org,3.centos.pool.ntp.org"
+
+my_smtpserver=""
+
+use_smtps="false"
 
 # Note: passwords must meet the DB complexity requirements
 root_password="HVP_dem0"
