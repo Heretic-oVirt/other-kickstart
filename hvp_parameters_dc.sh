@@ -5,7 +5,7 @@ nicmacfix="false"
 
 default_node_count="3"
 
-storage_name="discord"
+storage_name=""
 
 gluster_vol_name['unixshare']="unixshare"
 
@@ -53,12 +53,21 @@ my_forwarders="8.8.8.8"
 # Note: when installing further AD DCs you must provide a different name
 my_name="spike"
 
+my_ntpservers="0.centos.pool.ntp.org,1.centos.pool.ntp.org,2.centos.pool.ntp.org,3.centos.pool.ntp.org"
+
+my_smtpserver=""
+
+use_smtps="false"
+
 # Note: passwords must meet the AD complexity requirements
 root_password="HVP_dem0"
+winroot_password="HVP_dem0"
 admin_username="hvpadmin"
 admin_password="HVP_dem0"
 # Note: the default AD further admin username will be the admin username above prefixed with the "ad" string
 winadmin_password="HVP_dem0"
+adbind_username="binduser"
+adbind_password="BindPassw0rd"
 keyboard_layout="us"
 local_timezone="UTC"
 
