@@ -7,10 +7,9 @@ db_name="bigmcintosh"
 
 web_name="cheerilee"
 
-detype="gnome"
+detype="xfce"
 dedbtype="sqlite"
-
-ad_dc_name="spike"
+dbpwd="HVP_dem0"
 
 # Note: for the following values, either the IPs or the offset is enough, but we will list here both as an example
 test_ip_offset="1"
@@ -47,6 +46,13 @@ my_nameserver="8.8.8.8"
 
 my_name="grannysmith"
 
+
+my_ntpservers="0.centos.pool.ntp.org,1.centos.pool.ntp.org,2.centos.pool.ntp.org,3.centos.pool.ntp.org"
+
+my_smtpserver=""
+
+use_smtps="false"
+
 # Note: passwords must meet the AD complexity requirements
 root_password="HVP_dem0"
 admin_username="hvpadmin"
@@ -54,6 +60,7 @@ admin_password="HVP_dem0"
 # Note: the default AD further admin username will be the admin username above prefixed with the "ad" string
 winadmin_password="HVP_dem0"
 keyboard_layout="us"
+system_language="en_US.UTF-8"
 local_timezone="UTC"
 
 notification_receiver="monitoring@localhost"
