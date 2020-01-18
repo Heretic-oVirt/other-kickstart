@@ -10,19 +10,21 @@ hvp-pr-c7.ks - kickstart file for a CentOS7 printer server (Samba) machine
 
 hvp-vd-c7.ks - kickstart file for a CentOS7 remote desktop server (X2Go with either GNOME, KDE, Xfce or LXDE) machine
 
+hvp-web-c7.ks - kickstart file for a CentOS7 Web applications (X2Go session broker/Nextcloud/Online Office with either LibreOfficeOnline or OnlyOffice) machine
+
+hvp-tmpl-c7.ks - kickstart file for a CentOS7 template machine
+
 Future planned kickstart files (all further virtual machines should be joined to the AD domain created above):
 
-hvp-web-c7.ks - kickstart file for a CentOS7 Web applications (X2Go session broker/Nextcloud/Wiki) machine
+hvp-fw-c7.ks - kickstart file for a CentOS7 firewall/proxy/VPN (firewalld/Squid/Strongswan) machine
 
 hvp-mon-c7.ks - kickstart file for a CentOS7 monitoring (oVirt Metrics) machine
 
 hvp-aut-c7.ks - kickstart file for a CentOS7 automation (ManageIQ + AWX) machine
 
-hvp-erp-c7.ks - kickstart file for a CentOS7 application/ERP (TBD) machine
+hvp-erp-c7.ks - kickstart file for a CentOS7 application/ERP (either Tryton, Dolibarr, Axelor or Odoo) machine
 
 hvp-msg-c7.ks - kickstart file for a CentOS7 messaging/groupware (TBD) machine
-
-hvp-fw-c7.ks - kickstart file for a CentOS7 firewall/proxy/VPN (firewalld/Squid/Strongswan) machine
 
 hvp-sat-c7.ks - kickstart file for a CentOS7 management/orchestration/provisioning (Foreman) machine
 
