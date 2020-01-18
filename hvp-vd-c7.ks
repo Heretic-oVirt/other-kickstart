@@ -2,7 +2,6 @@
 # Note: minimum amount of RAM successfully tested for installation: 2048 MiB from network - 1024 MiB from local media
 
 # Install with commandline (see below for comments):
-# TODO: check each and every custom "hvp_" parameter below for overlap with default dracut/anaconda parameters and convert to using those instead
 # elevator=deadline inst.ks=https://dangerous.ovirt.life/hvp-repos/el7/ks/hvp-vd-c7.ks
 # Note: DHCP is assumed to be available on one and only one network (the mgmt one, which will be autodetected, albeit with a noticeable delay) otherwise the ip=nicname:dhcp option must be added, where nicname is the name of the network interface to be used for installation (eg: ens32)
 # Note: to force custom/fixed nic names add ifname=netN:AA:BB:CC:DD:EE:FF where netN is the desired nic name and AA:BB:CC:DD:EE:FF is the MAC address of the corresponding network interface
@@ -12,19 +11,22 @@
 # Note: to access the running installation by SSH (beware of publishing the access informations specified with the sshpw directive below) add the option inst.sshd
 # Note: to force static nic name-to-MAC mapping add the option hvp_nicmacfix
 # Note: to force custom host naming add hvp_myname=myhostname where myhostname is the unqualified (ie without domain name part) hostname
-# Note: to force custom addressing add hvp_{mgmt,lan}=x.x.x.x/yy where x.x.x.x may either be the machine IP or the network address on the given network and yy is the prefix on the given network
+# Note: to force custom addressing add hvp_{mgmt,lan}=x.x.x.x/yy where x.x.x.x may either be the machine IP or the network address on the given network and yy is the prefix on the given network (distinct physical networks cannot be logically conflated)
 # Note: to force custom IPs add hvp_{mgmt,lan}_my_ip=t.t.t.t where t.t.t.t is the chosen IP on the given network
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
-# Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
+# Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name (if distinct physical networks have conflated domain names, host names will be decorated with a "-zonename" suffix)
 # Note: to force custom multi-instance limit for each vm type (kickstart) add hvp_maxinstances=A where A is the maximum number of instances
 # Note: to force custom AD subdomain naming add hvp_ad_subdomainname=myprefix where myprefix is the subdomain name
 # Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an AD domain) or "false" (do not join an AD domain)
-# Note: to force custom AD DC naming add hvp_dcname=mydcname where mydcname is the unqualified (ie without domain name part) hostname of the AD DC
 # Note: to force custom desktop type add hvp_detype=eeee where eeee is the desktop type (either gnome, kde, xfce or lxde)
 # Note: to force custom desktop DB type add hvp_dedbtype=uuuu where uuuu is the desktop DB type (either sqlite or postgresql)
 # Note: to force custom DB server naming add hvp_dbname=mydbname where mydbname is the unqualified (ie without domain name part) hostname of the DB server
+# Note: to force custom database superuser password add hvp_dbpwd=mydbpassword where mydbpassword is the database superuser password
 # Note: to force custom Web server naming add hvp_webname=mywebname where mywebname is the unqualified (ie without domain name part) hostname of the Web server
-# Note: to force custom nameserver IP add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
+# Note: to force custom nameserver IP add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP (when joining AD this should be an AD DC)
+# Note: to force custom NTP server names/IPs add hvp_ntpservers=ntp0,ntp1,ntp2,ntp3 where ntpN are the NTP servers fully qualified domain names or IPs (when joining AD this will use the PDC-emulator role holder)
+# Note: to force custom SMTP relay server name/IP add hvp_smtpserver=smtpname where smtpname is the SMTP server fully qualified domain name or IP (used only on nodes and vms)
+# Note: to force custom SMTP relay server to use SMTPS add hvp_smtps (used only on nodes and vms)
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
 # Note: to force custom root password add hvp_rootpwd=mysecret where mysecret is the root user password
 # Note: to force custom admin username add hvp_adminname=myadmin where myadmin is the admin username
@@ -33,6 +35,7 @@
 # Note: to force custom AD further admin username add hvp_winadminname=mywinadmin where mywinadmin is the further AD admin username
 # Note: to force custom AD further admin password add hvp_winadminpwd=mywinothersecret where mywinothersecret is the further AD admin user password
 # Note: to force custom keyboard layout add hvp_kblayout=cc where cc is the country code
+# Note: to force custom system language add hvp_language=ii where ii is the language code (enacted only for heresiarch and virtual desktop installations)
 # Note: to force custom local timezone add hvp_timezone=VV where VV is the timezone specification
 # Note: to force custom Yum retries on failures add hvp_yum_retries=RR where RR is the number of retries
 # Note: to force custom Yum sleep time on failures add hvp_yum_sleep_time=SS where SS is the number of seconds between retries after each failure
@@ -47,12 +50,15 @@
 # Note: the default multi-instance limit is assumed to be 9
 # Note: the default AD subdomain name is assumed to be ad
 # Note: the default domain action is "false" (do not join an AD domain)
-# Note: the default AD DC naming uses the "My Little Pony" character name spike for the AD DC
-# Note: the default desktop type is gnome
+# Note: the default desktop type is xfce
 # Note: the default desktop DB type is sqlite
 # Note: the default DB server naming uses the "My Little Pony" character name bigmcintosh for the DB server
+# Note: the default database superuser password is HVP_dem0
 # Note: the default Web server naming uses the "My Little Pony" character name cheerilee for the Web server
 # Note: the default nameserver IP is assumed to be 8.8.8.8
+# Note: the default NTP server names are assumed to be 0.centos.pool.ntp.org 1.centos.pool.ntp.org 2.centos.pool.ntp.org 3.centos.pool.ntp.org (when joining AD this will use the PDC-emulator role holder)
+# Note: the default SMTP server name is assumed to be empty and the mail relaying will happen locally
+# Note: the default SMTP server connection is assumed to be plaintext with STARTTLS
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
 # Note: the default root user password is HVP_dem0
 # Note: the default admin username is hvpadmin
@@ -61,6 +67,7 @@
 # Note: the default AD further admin username is the same as the admin username with the string "ad" prefixed
 # Note: the default AD further admin user password is HVP_dem0
 # Note: the default keyboard layout is us
+# Note: the default system language is en_US.UTF-8
 # Note: the default local timezone is UTC
 # Note: the default number of retries after a Yum failure is 10
 # Note: the default sleep time between retries after a Yum failure is 10 seconds
@@ -159,6 +166,7 @@ unix2dos
 screen
 minicom
 telnet
+ftp
 tree
 audit
 iptraf
@@ -250,10 +258,10 @@ unset mtu
 unset domain_name
 unset ad_subdomain_prefix
 unset domain_join
-unset ad_dc_name
 unset detype
 unset dedbtype
 unset db_name
+unset dbpwd
 unset web_name
 unset reverse_domain_name
 unset test_ip
@@ -263,6 +271,9 @@ unset multi_instance_max
 unset my_name
 unset my_nameserver
 unset my_gateway
+unset my_ntpservers
+unset my_smtpserver
+unset use_smtps
 unset root_password
 unset admin_username
 unset admin_password
@@ -270,6 +281,7 @@ unset notification_receiver
 unset winadmin_username
 unset winadmin_password
 unset keyboard_layout
+unset system_language
 unset local_timezone
 unset hvp_repo_baseurl
 unset hvp_repo_gpgkey
@@ -278,14 +290,13 @@ unset hvp_repo_gpgkey
 
 nicmacfix="false"
 
-ad_dc_name="spike"
-
 db_name="bigmcintosh"
 
 web_name="cheerilee"
 
-detype="gnome"
+detype="xfce"
 dedbtype="sqlite"
+dbpwd="HVP_dem0"
 
 declare -A hvp_repo_baseurl
 declare -A hvp_repo_gpgkey
@@ -323,10 +334,8 @@ ad_subdomain_prefix="ad"
 
 domain_join="false"
 
+# Note: no need to define reverse network domain names since they get automatically defined below
 declare -A reverse_domain_name
-reverse_domain_name['mgmt']="10.20.172.in-addr.arpa"
-reverse_domain_name['lan']="12.20.172.in-addr.arpa"
-reverse_domain_name['internal']="13.20.172.in-addr.arpa"
 
 declare -A test_ip
 # Note: default values for test_ip derived below - defined here to allow loading as configuration parameters
@@ -335,12 +344,19 @@ my_nameserver="8.8.8.8"
 
 my_name="grannysmith"
 
+my_ntpservers="0.centos.pool.ntp.org,1.centos.pool.ntp.org,2.centos.pool.ntp.org,3.centos.pool.ntp.org"
+
+my_smtpserver=""
+
+use_smtps="false"
+
 # Note: passwords must meet the AD complexity requirements
 root_password="HVP_dem0"
 admin_username="hvpadmin"
 admin_password="HVP_dem0"
 winadmin_password="HVP_dem0"
 keyboard_layout="us"
+system_language="en_US.UTF-8"
 local_timezone="UTC"
 
 notification_receiver="monitoring@localhost"
@@ -537,6 +553,12 @@ if [ -n "${given_keyboard_layout}" ]; then
 	keyboard_layout="${given_keyboard_layout}"
 fi
 
+# Determine system language
+given_system_language=$(sed -n -e "s/^.*hvp_language=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_system_language}" ]; then
+	system_language="${given_system_language}"
+fi
+
 # Determine local timezone
 given_local_timezone=$(sed -n -e "s/^.*hvp_timezone=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_local_timezone}" ]; then
@@ -573,12 +595,6 @@ if echo "${given_joindomain}" | egrep -q '^(true|false)$' ; then
 	domain_join="${given_joindomain}"
 fi
 
-# Determine AD DC name
-given_dcname=$(sed -n -e 's/^.*hvp_dcname=\(\S*\).*$/\1/p' /proc/cmdline)
-if echo "${given_dcname}" | grep -q '^[[:alnum:]]\+$' ; then
-	ad_dc_name="${given_dcname}"
-fi
-
 # Determine DB server name
 given_dbname=$(sed -n -e 's/^.*hvp_dbname=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_dbname}" | grep -q '^[[:alnum:]]\+$' ; then
@@ -611,6 +627,23 @@ esac
 given_nameserver=$(sed -n -e "s/^.*hvp_nameserver=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_nameserver}" ]; then
 	my_nameserver="${given_nameserver}"
+fi
+
+# Determine NTP servers addresses
+given_ntpservers=$(sed -n -e "s/^.*hvp_ntpservers=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_ntpservers}" ]; then
+	my_ntpservers="${given_ntpservers}"
+fi
+
+# Determine SMTP server address
+given_smtpserver=$(sed -n -e "s/^.*hvp_smtpserver=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_smtpserver}" ]; then
+	my_smtpserver="${given_smtpserver}"
+fi
+
+# Determine choice of forcing SMTPS
+if grep -w -q 'hvp_smtps' /proc/cmdline ; then
+	use_smtps="true"
 fi
 
 # Determine gateway address
@@ -788,6 +821,18 @@ if [ -z "${my_gateway}" ]; then
 	my_gateway="${test_ip[${my_zone}]}"
 fi
 
+# Perform check to detect conflated domain name spaces
+# Note: in presence even of a couple of conflated domain name spaces we will force hostname suffixes on all subnets
+use_hostname_decoration="false"
+added_zones=""
+for zone in "${!network[@]}" ; do
+	if echo "${added_zones}" | grep -q -w $(echo "${domain_name[${zone}]}" | sed -e 's/[.]/\\./g') ; then
+		use_hostname_decoration="true"
+		break
+	fi
+	added_zones="${added_zones} ${domain_name[${zone}]}"
+done
+
 # Create network setup fragment
 # Note: dynamically created here to make use of full autodiscovery above
 # Note: defining statically configured access to autodetected networks
@@ -818,9 +863,9 @@ for zone in "${!network[@]}" ; do
 		# Add hostname option on the trusted zone only
 		if [ "${zone}" = "${my_zone}" ]; then
 			if [ "${domain_join}" = "true" ]; then
-				further_options="${further_options} --hostname=${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]}"
+				further_options="${further_options} --hostname=${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${zone}]}"
 			else
-				further_options="${further_options} --hostname=${my_name}.${domain_name[${zone}]}"
+				further_options="${further_options} --hostname=${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${domain_name[${zone}]}"
 			fi
 		fi
 		# Single (plain) interface
@@ -885,7 +930,6 @@ fi
 EOF
 
 # Create localization setup fragment
-# TODO: allow changing system language too
 if [ "${keyboard_layout}" != "us" ]; then
 	# TODO: GNOME3 seems not to respect the keyboard layout preference order (US is always the default) - even when removing additional layout
 	xlayouts="'${keyboard_layout}','us'"
@@ -893,8 +937,8 @@ else
 	xlayouts="'us'"
 fi
 cat << EOF > /tmp/full-localization
-# Default system language, additional languages can be enabled installing the appropriate packages below
-lang en_US.UTF-8
+# System language, additional languages can be enabled installing the appropriate packages below
+lang ${system_language}
 # Keyboard layout
 keyboard --vckeymap=${keyboard_layout} --xlayouts=${xlayouts}
 # Configure time zone (NTP details demanded to post section)
@@ -923,9 +967,23 @@ bootloader --location=mbr --timeout=3 --password=${root_password} --boot-drive=$
 ignoredisk --only-use=${disk_device_name}
 # Automatically create UEFI or BIOS boot partition depending on hardware capabilities
 reqpart --add-boot
-# Simple partitioning: single root and swap
-part swap --fstype swap --hibernation --ondisk=${disk_device_name} --asprimary
-part / --fstype xfs --size=100 --grow --ondisk=${disk_device_name} --asprimary
+# Note: the following uses only the first disk as PV and leaves other disks unused if the first one is sufficiently big, otherwise starts using other disks too
+part pv.01 --size=64000 --grow
+# Create a VG
+volgroup VDVG pv.01
+# Define swap space
+logvol swap --vgname=VDVG --name=swap --fstype=swap --recommended
+logvol / --vgname=VDVG --name=root --size=6000 --grow
+logvol /var --vgname=VDVG --name=var --size=2000
+logvol /var/cache --vgname=VDVG --name=var_cache --size=5000
+logvol /var/crash --vgname=VDVG --name=var_crash --size=12000
+logvol /var/lib --vgname=VDVG --name=var_lib --size=10000
+logvol /var/log --vgname=VDVG --name=var_log --size=10000
+logvol /var/log/audit --vgname=VDVG --name=var_log_audit --size=2000
+logvol /var/spool --vgname=VDVG --name=var_spool --size=3000
+logvol /var/tmp --vgname=VDVG --name=var_tmp --size=2000 --grow
+logvol /home --vgname=VDVG --name=home --size=1000 --grow
+logvol /tmp --vgname=VDVG --name=tmp --size=2000 --grow
 EOF
 # Clean up disks from any previous LVM setup
 # Note: it seems that simply zeroing out below is not enough
@@ -1024,15 +1082,18 @@ pushd /tmp/hvp-ntpd-conf
 if [ "${domain_join}" = "true" ]; then
 	# Make sure to sync only with the proper time reference (emulate Windows behaviour, using as reference the AD domain name to get back the DC holding the PDC emulator FSMO role)
 	ntp_server="${ad_subdomain_prefix}.${domain_name[${my_zone}]}"
+	echo "${ntp_server}" > step-tickers
 	cat <<- EOF > chrony.conf
 
 	server ${ntp_server} iburst
 
 	EOF
 else
-	ntp_server="0.centos.pool.ntp.org"
+	for server in $(echo "${my_ntpservers}" | sed -e 's/,/ /g'); do
+		echo "${server}" >> step-tickers
+		echo "server ${server} iburst" >> chrony.conf
+	done
 fi
-echo "${ntp_server}" > step-tickers
 popd
 
 # Prepare hosts file to be copied later on below
@@ -1046,16 +1107,16 @@ for zone in "${!network[@]}" ; do
 	if [ "${zone}" = "${my_zone}" ]; then
 		if [ "${domain_join}" = "true" ]; then
 			cat <<- EOF >> hosts
-			${my_ip[${zone}]}		${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}
+			${my_ip[${zone}]}		${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi)
 			EOF
 		else
 			cat <<- EOF >> hosts
-			${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]} ${my_name}
+			${my_ip[${zone}]}		${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${domain_name[${zone}]} ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi)
 			EOF
 		fi
 	else
 		cat <<- EOF >> hosts
-		${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]}
+		${my_ip[${zone}]}		${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${domain_name[${zone}]}
 		EOF
 	fi
 done
@@ -1130,15 +1191,17 @@ if [ "${domain_join}" = "true" ]; then
 		EOM
 	        # Complete SSSD configuration for AD
 	        # Note: GDM login fails otherwise as per https://bugzilla.redhat.com/show_bug.cgi?id=1231833
-	        sed -i -e '/services/s/\$/, pac/' /etc/sssd/sssd.conf
+	        sed -i -e '/services/s/\$/, pac/' -e '/^use_fully_qualified_names/s/True/False/' -e '/^fallback_homedir/s>%u@%d>%d/%u>' /etc/sssd/sssd.conf
 		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
 		cat << EOM >> /etc/sssd/sssd.conf
+		auto_private_groups = True
 		auth_provider = ad
 		chpass_provider = ad
 		EOM
 	        # Configure automounter for AD-integrated LDAP maps
 	        # Note: oddjobd-mkhomedir is automatically enabled but NFS-based home dirs need NFS root access to be autocreated at logon
 	        # Note: using SSSD (instead of direct LDAP access) as autofs backend
+		# TODO: check the following against latest CentOS
 	        setsebool -P use_nfs_home_dirs on
 	        sed -i -e '/^automount:/s/files.*\$/sss/g' /etc/nsswitch.conf
 	        sed -i -e '/services/s/\$/, autofs/' /etc/sssd/sssd.conf
@@ -1165,12 +1228,13 @@ if [ "${domain_join}" = "true" ]; then
 		EOM
 	        systemctl restart sssd
 	        # Configure SSH server and client for Kerberos SSO
-	        # TODO: verify auth_to_local mapping rules in /etc/krb5.conf
 	        sed -i -e 's/^#GSSAPIKeyExchange\\s.*\$/GSSAPIKeyExchange yes\\nGSSAPIStoreCredentialsOnRekey yes/' /etc/ssh/sshd_config
 	        sed -i -e 's/^\\(\\s*\\)\\(GSSAPIAuthentication\\s*yes\\).*\$/\\1\\2\\n\\1GSSAPIDelegateCredentials yes\\n\\1GSSAPIKeyExchange yes\\n\\1GSSAPIRenewalForcesRekey yes/' /etc/ssh/ssh_config
-		# TODO: restart hangs blocking rc.domain-join indefinitely - working around with stop + start
+	        # TODO: restart hangs blocking rc.domain-join indefinitely - working around with stop + start
+	        # TODO: start hangs too - working around with background start
 	        systemctl stop sshd
-	        systemctl start sshd
+	        sleep 5
+	        systemctl start sshd &
 	        # Complete automounter configuration
 	        mkdir -p /home/{${ad_subdomain_prefix}.${domain_name[${my_zone}]},groups} /usr/local/software
 	        chown root:root /home/{${ad_subdomain_prefix}.${domain_name[${my_zone}]},groups} /usr/local/software
@@ -1195,36 +1259,35 @@ case "${dedbtype}" in
 	postgresql)
 		# Setup PostgreSQL DB backend
 		if [ "${domain_join}" = "true" ]; then
-			db_host="${db_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]}"
+			db_host="${db_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]}"
 			x2go_users_group="Remote Desktop Users@${ad_subdomain_prefix}.${domain_name[${my_zone}]}"
-			web_host="${web_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]}"
-			my_host="${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]}"
+			web_host="${web_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]}"
+			my_host="\$(hostname)"
 		else
-			db_host="${db_name}.${domain_name[${my_zone}]}"
+			db_host="${db_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${domain_name[${my_zone}]}"
 			x2go_users_group="users"
-			web_host="${web_name}.${domain_name[${my_zone}]}"
-			my_host="${my_name}.${domain_name[${my_zone}]}"
+			web_host="${web_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${domain_name[${my_zone}]}"
+			my_host="\$(hostname)"
 		fi
 		sed -i -e "s/^backend=.*\\\$/backend=postgres/g' -e '/^\\\\[postgres\\\\]/,/^\\\\[/s/^host=.*\\\$/host=\\\${db_host}/" /etc/x2go/x2gosql/sql
-		echo '${root_password}' > /etc/x2go/x2gosql/passwords/pgadmin
+		echo '${dbpwd}' > /etc/x2go/x2gosql/passwords/pgadmin
 		chown root:root /etc/x2go/x2gosql/passwords/pgadmin
 		chmod 600 /etc/x2go/x2gosql/passwords/pgadmin
 		# Perform X2Go DB initialization only if DB is missing
-		export PGPASSWORD='${root_password}'
+		export PGPASSWORD='${dbpwd}'
 		if ! psql -h "\${db_host}" -w -U postgres -lqt | cut -d \\| -f 1 | grep -qw x2go_sessions ; then
 			/usr/lib/x2go/script/x2godbadmin --createdb
 			/usr/lib/x2go/script/x2godbadmin --addgroup "\${x2go_users_group}"
 		fi
-		# TODO: Allow access to the X2Go session broker
-		# TODO: the session broker agent must be configured after the session broker server has been setup (on a different machine)
+		# Allow access from the X2Go session broker by means of the X2Go Session Broker Agent
+		# Note: the following command must be issued on each X2Go server after the session broker server has been setup (on a different machine, eg the HVP web server machine)
 		# TODO: either enroll signed certificates or use a local CA then switch to HTTPS
-		#x2gobroker-pubkeyauthorizer --broker-url http://\${web_host}/x2gobroker/pubkeys/
-		# TODO: after enrolling, list this host under session broker configuration on session broker server
-		#sed -i -e "/^host=/s/\\\$/,\${my_host} (\$(dig \${my_host} A +short))/" /etc/x2go/x2gobroker-sessionprofiles.conf
+		x2gobroker-pubkeyauthorizer --broker-url http://\${web_host}/x2gobroker/pubkeys/
 		;;
 esac
 
 # Configure X2Go
+# TODO: find a way to make all users members of the fuse group to allow remote folders mounting
 systemctl --now enable x2goserver
 
 EOF
@@ -1252,7 +1315,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2019032601"
+script_version="2019112801"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1296,31 +1359,27 @@ cat /etc/hosts >> /tmp/post.out
 
 # Hardcoded defaults
 
-unset network
-unset netmask
-unset network_base
-unset mtu
-unset domain_name
-unset reverse_domain_name
-unset test_ip
 unset multi_instance_max
 unset nicmacfix
+unset my_smtpserver
+unset use_smtps
 unset detype
 unset dedbtype
 unset db_name
 unset notification_receiver
 unset yum_sleep_time
 unset yum_retries
+unset custom_yum_conf
 unset hvp_repo_baseurl
 unset hvp_repo_gpgkey
 
 # Define associative arrays
-declare -A network netmask network_base mtu
-declare -A domain_name
-declare -A reverse_domain_name
-declare -A test_ip
 declare -A hvp_repo_baseurl
 declare -A hvp_repo_gpgkey
+
+my_smtpserver=""
+
+use_smtps="false"
 
 nicmacfix="false"
 
@@ -1333,6 +1392,8 @@ dedbtype="sqlite"
 
 yum_sleep_time="10"
 yum_retries="10"
+
+custom_yum_conf="false"
 
 notification_receiver="monitoring@localhost"
 
@@ -1348,6 +1409,17 @@ yum() {
 	while [ ${result} -ne 0 -a ${retries_left} -gt 0 ]; do
 		sleep ${yum_sleep_time}
 		echo "Retrying yum operation (${retries_left} retries left at $(date '+%Y-%m-%d %H:%M:%S')) after failure (exit code ${result})" 1>&2
+		# Note: it seems that NetworkManager may break down if updated inside chroot - attempting workaround here
+		nmcli dev
+		nmcli connection
+		nmcli connection reload
+		nmcli dev
+		nmcli connection
+		# Note: adding resolution/ping of some well-known public hosts to force wake-up of buggy DNS/gateway implementations (VMware Workstation 12 suspected)
+		for target in www.google.com www.centos.org mirrorlist.centos.org ; do
+			/bin/nslookup "${target}"
+			/bin/ping -c 4 "${target}"
+		done
 		# Note: adding a complete cleanup before retrying
 		/usr/bin/yum clean all
 		/usr/bin/yum "$@"
@@ -1421,10 +1493,51 @@ if echo "${given_yum_sleep_time}" | grep -q '^[[:digit:]]\+$' ; then
 	yum_sleep_time="${given_yum_sleep_time}"
 fi
 
+# Determine custom URLs for repositories and GPG keys
+for repo_name in $(egrep -o 'hvp_[^=]*_(baseurl|gpgkey)' /proc/cmdline | sed -e 's/^hvp_//' -e 's/_baseurl$//' -e 's/_gpgkey$//' | sort -u); do
+	# Take URLs from kernel commandline
+	given_repo_baseurl=$(sed -n -e "s/^.*hvp_${repo_name}_baseurl=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+	if [ -n "${given_repo_baseurl}" ]; then
+		# Correctly detect an empty (disabled) repo URL
+		if [ "${given_repo_baseurl}" = '""' -o "${given_repo_baseurl}" = "''" ]; then
+			unset hvp_repo_baseurl[${repo_name}]
+		else
+			hvp_repo_baseurl[${repo_name}]="${given_repo_baseurl}"
+		fi
+	fi
+	given_repo_gpgkey=$(sed -n -e "s/^.*hvp_${repo_name}_gpgkey=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+	if [ -n "${given_repo_gpgkey}" ]; then
+		# Correctly detect an empty (disabled) gpgkey URL
+		if [ "${given_repo_gpgkey}" = '""' -o "${given_repo_gpgkey}" = "''" ]; then
+			unset hvp_repo_gpgkey[${repo_name}]
+		else
+			hvp_repo_gpgkey[${repo_name}]="${given_repo_gpgkey}"
+		fi
+	fi
+done
+# Verify whether a custom conf has been established (either from commandline parsing or from parameter configuration files)
+url_count="${#hvp_repo_baseurl[@]}"
+key_count="${#hvp_repo_gpgkey[@]}"
+ref_count=$((url_count + key_count))
+if [ "${ref_count}" -gt 1 ]; then
+	custom_yum_conf="true"
+fi
+
 # Determine notification receiver email address
 given_receiver_email=$(sed -n -e "s/^.*hvp_receiver_email=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_receiver_email}" ]; then
 	notification_receiver="${given_receiver_email}"
+fi
+
+# Determine SMTP server address
+given_smtpserver=$(sed -n -e "s/^.*hvp_smtpserver=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_smtpserver}" ]; then
+	my_smtpserver="${given_smtpserver}"
+fi
+
+# Determine choice of forcing SMTPS
+if grep -w -q 'hvp_smtps' /proc/cmdline ; then
+	use_smtps="true"
 fi
 
 # Create /dev/root symlink for grubby (must differentiate for use of LVM or MD based "/")
@@ -1441,60 +1554,38 @@ then
 fi
 ln -sf $rootdisk /dev/root
 
-# Add YUM priorities plugin
-yum -y install yum-plugin-priorities
-
 # Correctly initialize YUM cache to avoid 404 errors
 # Note: following advice in https://access.redhat.com/articles/1320623
 # TODO: remove when fixed upstream
 rm -rf /var/cache/yum/*
 yum --enablerepo '*' clean all
 
-# Comment out mirrorlist directives and uncomment the baseurl ones to make better use of proxy caches
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
 # Note: done here to cater for those repos already installed by default
-for repofile in /etc/yum.repos.d/*.repo; do
-	if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
-		sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
-		sed -i -e 's/^metalink/#metalink/g' "${repofile}"
-		sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
-	fi
-done
-# Disable fastestmirror yum plugin too
-sed -i -e 's/^enabled.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
-
-# Allow specifying custom base URLs for repositories and GPG keys
-# Note: done here to cater for those repos already installed by default
-for repo_name in $(yum repolist all -v 2>/dev/null | awk '/Repo-id/ {print $3}' | sed -e 's>/.*$>>g'); do
-	# Take URLs from parameters files or hardcoded defaults
-	repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
-	repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
-	# Take URLs from kernel commandline
-	given_repo_baseurl=$(sed -n -e "s/^.*hvp_${repo_name}_baseurl=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_baseurl}" ]; then
-		# Correctly detect an empty (disabled) repo URL
-		if [ "${given_repo_baseurl}" = '""' -o "${given_repo_baseurl}" = "''" ]; then
-			unset repo_baseurl
-		else
-			repo_baseurl="${given_repo_baseurl}"
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
 		fi
-	fi
-	given_repo_gpgkey=$(sed -n -e "s/^.*hvp_${repo_name}_gpgkey=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_gpgkey}" ]; then
-		# Correctly detect an empty (disabled) gpgkey URL
-		if [ "${given_repo_gpgkey}" = '""' -o "${given_repo_gpgkey}" = "''" ]; then
-			unset repo_gpgkey
-		else
-			repo_gpgkey="${given_repo_gpgkey}"
+	done
+	# Disable fastestmirror yum plugin too
+	sed -i -e 's/^enabled.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos already installed by default
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
 		fi
-	fi
-	# Force any custom URLs
-	if [ -n "${repo_baseurl}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
-	fi
-	if [ -n "${repo_gpgkey}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
-	fi
-done
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
 
 # Add YUM priorities plugin
 yum -y install yum-plugin-priorities
@@ -1504,74 +1595,149 @@ yum -y install yum-plugin-priorities
 #yum-config-manager --enable cr > /dev/null
 
 # Add HVP custom repo
-yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-5.noarch.rpm
+# Define proper network source
+hvp_baseurl="https://dangerous.ovirt.life/hvp-repos/el$(rpm -q --queryformat '%{version}' centos-release)/hvp/"
+# Prefer custom HVP repo URL, if any
+if [ -n "${hvp_repo_baseurl['hvp']}" ]; then
+	hvp_baseurl=$(echo "${hvp_repo_baseurl['hvp']}" | sed -e 's/\$releasever/'$(rpm -q --queryformat '%{version}' centos-release)'/g' -e 's/\$basearch/'$(uname -m)'/g')
+fi
+yum -y --nogpgcheck install ${hvp_baseurl}/hvp-release-latest.noarch.rpm
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+		fi
+	done
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos installed above
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+		fi
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
 
-# Add upstream repository definitions
+# Add EPEL repository definition
 yum -y install epel-release
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+		fi
+	done
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos installed above
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+		fi
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
 
-# Add Webmin repo
+# Add Webmin repository definition
+# Define proper network source
+webmin_baseurl="http://download.webmin.com/download/yum/"
+webmin_gpgkey="http://www.webmin.com/jcameron-key.asc"
+# Prefer custom Webmin URLs, if any
+if [ -n "${hvp_repo_baseurl['webmin']}" ]; then
+	webmin_baseurl="${hvp_repo_baseurl['webmin']}"
+fi
+if [ -n "${hvp_repo_gpgkey['webmin']}" ]; then
+	webmin_gpgkey="${hvp_repo_gpgkey['webmin']}"
+fi
 cat << EOF > /etc/yum.repos.d/webmin.repo
 [webmin]
 name = Webmin Distribution Neutral
-baseurl = http://download.webmin.com/download/yum
+baseurl = ${webmin_baseurl}
 gpgcheck = 1
 enabled = 1
-gpgkey = http://www.webmin.com/jcameron-key.asc
+gpgkey = ${webmin_gpgkey}
 skip_if_unavailable = 1
 EOF
 chmod 644 /etc/yum.repos.d/webmin.repo
 
-# Add X2Go upstream repo
-wget -P /etc/yum.repos.d https://packages.x2go.org/epel/x2go.repo
+# Add X2Go repository definition
+# Define proper network source
+x2go_baseurl="https://packages.x2go.org/epel/"
+# Prefer custom X2Go base URL, if any
+if [ -n "${hvp_repo_baseurl['x2go']}" ]; then
+	x2go_baseurl="${hvp_repo_baseurl['x2go']}"
+fi
+wget -P /etc/yum.repos.d "${x2go_baseurl}x2go.repo"
 # Note: disabling base repo and enabling ESR one
 yum-config-manager --disable x2go-release-epel > /dev/null
 yum-config-manager --enable x2go-saimaa-epel > /dev/null
 # Note: giving priority to upstream repo over EPEL
 yum-config-manager --save --setopt='x2go-saimaa-epel.priority=50' > /dev/null
-
-# Comment out mirrorlist directives and uncomment the baseurl ones to make better use of proxy caches
-# Note: repeated here to allow applying to further repos installed above
-for repofile in /etc/yum.repos.d/*.repo; do
-	if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
-		sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
-		sed -i -e 's/^metalink/#metalink/g' "${repofile}"
-		sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
-	fi
-done
-
-# Allow specifying custom base URLs for repositories and GPG keys
-# Note: repeated here to allow applying to further repos installed above
-for repo_name in $(yum repolist all -v 2>/dev/null | awk '/Repo-id/ {print $3}' | sed -e 's>/.*$>>g'); do
-	# Take URLs from parameters files or hardcoded defaults
-	repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
-	repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
-	# Take URLs from kernel commandline
-	given_repo_baseurl=$(sed -n -e "s/^.*hvp_${repo_name}_baseurl=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_baseurl}" ]; then
-		# Correctly detect an empty (disabled) repo URL
-		if [ "${given_repo_baseurl}" = '""' -o "${given_repo_baseurl}" = "''" ]; then
-			unset repo_baseurl
-		else
-			repo_baseurl="${given_repo_baseurl}"
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
 		fi
-	fi
-	given_repo_gpgkey=$(sed -n -e "s/^.*hvp_${repo_name}_gpgkey=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_gpgkey}" ]; then
-		# Correctly detect an empty (disabled) gpgkey URL
-		if [ "${given_repo_gpgkey}" = '""' -o "${given_repo_gpgkey}" = "''" ]; then
-			unset repo_gpgkey
-		else
-			repo_gpgkey="${given_repo_gpgkey}"
+	done
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos installed above
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
 		fi
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
+
+# Add Enterprise Virtualization repo
+if egrep '^flags:.*(svm|vmx)' /proc/cpuinfo ; then
+	yum -y install centos-release-qemu-ev
+	# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+	if [ "${custom_yum_conf}" = "true" ]; then
+		for repofile in /etc/yum.repos.d/*.repo; do
+			if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+				sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+				sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+				sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+			fi
+		done
+		# Allow specifying custom base URLs for repositories and GPG keys
+		# Note: done here to cater for those repos installed above
+		for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+			repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+			repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+			# Force any custom URLs
+			if [ -n "${repo_baseurl}" ]; then
+				yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+			fi
+			if [ -n "${repo_gpgkey}" ]; then
+				yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+			fi
+		done
 	fi
-	# Force any custom URLs
-	if [ -n "${repo_baseurl}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
-	fi
-	if [ -n "${repo_gpgkey}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
-	fi
-done
+fi
 
 # Enable use of delta rpms since we are not using a local mirror
 # Note: this may introduce HTTP 416 errors - better leave this to post-installation manual choices
@@ -1584,6 +1750,7 @@ rm -rf /var/cache/yum/*
 yum --enablerepo '*' clean all
 
 # Update OS (with "upgrade" to allow package obsoletion) non-interactively ("-y" yum option)
+# Note: any repo file involved in release package upgrades would be in .rpmnew so no need to reapply customizations now
 yum -y upgrade
 
 # TODO: Make sure that the latest installed kernel is the default
@@ -1618,14 +1785,22 @@ yum -y install webmin
 # Note: immediately stop webmin started by postinst scriptlet
 /etc/init.d/webmin stop
 
+# Install needed packages to join AD domain
+yum -y install sssd-ad realmd adcli krb5-workstation samba-common sssd-tools ldb-tools tdb-tools
+
 # Install X2Go
 # TODO: add x2godesktopsharing package when supported under ESR
-yum -y install x2goserver x2goserver-xsession x2goserver-fmbindings
+# TODO: manually installing Perl dependency packages to avoid webmin/usermin packages to erroneously provide them - remove when fixed upstream
+yum -y install perl-File-BaseDir perl-Capture-Tiny perl-Config-Simple perl-DBD-SQLite perl-File-Which perl-Switch perl-Try-Tiny
+yum -y install x2goserver x2goserver-xsession x2goserver-fmbindings fuse-sshfs
 # Add session broker agent and PostgreSQL utils for load-balanced setup
-yum -y install x2gobroker-agent postgresql
+yum -y install x2gobroker-agent postgresql sqlite
 
 # Install Midnight Commander
 yum -y install mc
+
+# Install Nextcloud desktop client
+yum -y install nextcloud-client
 
 # Install Java browser and Virt-Viewer support
 yum -y install icedtea-web virt-viewer spice-xpi
@@ -1633,10 +1808,8 @@ yum -y install icedtea-web virt-viewer spice-xpi
 # Install graphical bootsplash theme
 yum -y install plymouth-theme-charge
 
-# Install needed packages to join AD domain
-yum -y install sssd-ad realmd adcli krb5-workstation samba-common sssd-tools ldb-tools tdb-tools
-
 # Install desktop packages
+# TODO: GNOME and KDE seem to be incompatible with X2Go at the moment (GLX/compositing unsupported - try with LIBGL_ALWAYS_SOFTWARE=1) - verify and enable any workaround
 case "${detype}" in
 	gnome)
 		# Install additional GNOME packages
@@ -1646,6 +1819,8 @@ case "${detype}" in
 	kde)
 		# Install KDE packages
 		yum -y install @kde-desktop @kde-apps @kde-media kdenetwork-krdc
+		# TODO: it seems that kscreen currently does not play well with X2Go - remove when fixed upstream
+		yum -y erase kscreen
 		;;
 	xfce)
 		# Install Xfce packages
@@ -1700,7 +1875,6 @@ fi
 
 # Add virtualization support on suitable platforms
 if egrep '^flags:.*(svm|vmx)' /proc/cpuinfo ; then
-	yum -y install centos-release-qemu-ev
 	yum -y install qemu-kvm qemu-img virt-manager libvirt libvirt-python libvirt-client virt-install virt-viewer virt-top libguestfs numpy
 fi
 
@@ -1711,13 +1885,44 @@ yum --enablerepo '*' clean all
 find /etc -type f -name '*.rpmnew' -exec rename .rpmnew "" '{}' ';'
 find /etc -type f -name '*.rpmsave' -exec rm -f '{}' ';'
 
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+# Note: done here to cater for modified repos from the upgrade above
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+		fi
+	done
+	# Reapply all yum settings
+	sed -i -e 's/^enabled.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
+	yum-config-manager --save --setopt='deltarpm=0' > /dev/null
+	yum-config-manager --disable x2go-release-epel > /dev/null
+	yum-config-manager --enable x2go-saimaa-epel > /dev/null
+	yum-config-manager --save --setopt='x2go-saimaa-epel.priority=50' > /dev/null
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos already installed by default
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+		fi
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
+
 # Now configure the base OS
 # TODO: Decide which part to configure here and which part to demand to Ansible
 
 # Setup auto-update via yum-cron (ala CentOS4, replacement for yum-updatesd in CentOS5)
-# Note: Enable updates but leave to the user/owner the final authority on download and installation
-sed -i -e 's/^update_messages\s.*$/update_messages = yes/' -e 's/^download_updates\s.*$/download_updates = no/' -e 's/^apply_updates\s.*$/apply_updates = no/' -e 's/^emit_via\s.*$/emit_via = None/' /etc/yum/yum-cron*.conf
-systemctl enable yum-cron
+# Note: Updates left to the administrator manual intervention
+sed -i -e 's/^update_messages\s.*$/update_messages = no/' -e 's/^download_updates\s.*$/download_updates = no/' -e 's/^apply_updates\s.*$/apply_updates = no/' -e 's/^emit_via\s.*$/emit_via = None/' /etc/yum/yum-cron*.conf
+systemctl disable yum-cron
 
 # Limit retained old kernels to 3 (as in CentOS5 default)
 yum-config-manager --save --setopt='installonly_limit=3' > /dev/null
@@ -1882,15 +2087,21 @@ sed -i -e 's/^SYNC_HWCLOCK=.*$/SYNC_HWCLOCK="yes"/' /etc/sysconfig/ntpdate
 mkdir -p /etc/selinux/local
 cat << EOF > /etc/selinux/local/myntpdate.te
 
-module myntpdate 8.0;
+module myntpdate 9.0;
 
 require {
+        type chronyc_t;
+        type kernel_t;
         type ntpd_t;
         type hwclock_exec_t;
         type adjtime_t;
+        class system module_request;
         class file { open read write execute execute_no_trans getattr };
         class netlink_audit_socket create;
 }
+
+#============= chronyc_t ==============
+allow chronyc_t kernel_t:system module_request;
 
 #============= ntpd_t ==============
 allow ntpd_t hwclock_exec_t:file { open read execute execute_no_trans getattr };
@@ -1975,6 +2186,55 @@ Continued use of this computer implies acceptance of the above conditions.
 EOF
 chmod 644 /etc/{issue*,motd}
 
+# Configure SMTP relay
+if [ -n "${my_smtpserver}" ]; then
+	if [ "${use_smtps}" = "true" ]; then
+		# Configure SMTPS smart host by means of systemd-controlled stunnel service
+		# Note: no service section is allowed in inetd mode
+		cat <<- EOF > /etc/stunnel/relay-smtps.conf
+		setuid = nobody
+		setgid = nobody
+		pid =
+		client = yes
+		connect = ${my_smtpserver}:465
+		fips = no
+		EOF
+		chmod 644 /etc/stunnel/relay-smtps.conf
+		# Configure relay-smtps as a systemd-controlled socket-activated service
+		# Note: Accept=yes (inetd-style) forces us to create a template service below
+		cat <<- EOF > /etc/systemd/system/relay-smtps.socket
+		[Socket]
+		ListenStream=127.0.0.1:11125
+		Accept=yes
+		
+		[Install]
+		WantedBy=sockets.target
+		EOF
+		chmod 644 /etc/systemd/system/relay-smtps.socket
+		# Note: inetd-style means that stdin/stdout must go through socket
+		# TODO: modify to run unprivileged (use nobody here and remove setuid/setgid from stunnel configuration above)
+		cat <<- EOF > /etc/systemd/system/relay-smtps@.service
+		[Service]
+		ExecStart=/usr/bin/stunnel /etc/stunnel/relay-smtps.conf
+		StandardInput=socket
+		Type=forking
+		User=root
+		PrivateTmp=true
+		EOF
+		chmod 644 /etc/systemd/system/relay-smtps@.service
+		
+		# Enable relay-smtps as a systemd-controlled socket-activated service
+		systemctl enable relay-smtps.socket
+		
+		# Relay Postfix client connections through stunnel
+		postconf -e 'smtp_use_tls = no'
+		postconf -e 'relayhost = [127.0.0.1]:11125'
+	else
+		# Directly relay through the specified server
+		postconf -e "relayhost = ${my_smtpserver}"
+	fi
+fi
+
 # Enable persistent Journal logs
 mkdir -p /var/log/journal
 
@@ -2020,7 +2280,7 @@ chmod 640 /var/log/{messages,secure,cron,maillog,spooler}
 # Keep crash info even for non-rpm-packaged programs but exclude users writable paths
 sed -i -e 's/^ProcessUnpackaged.*$/ProcessUnpackaged = yes/' -e 's%\(BlackListedPaths.*\)$%\1, /home*, /tmp/*, /var/tmp/*%' /etc/abrt/abrt-action-save-package-data.conf
 # Allow reports for signed packages from 3rd-party repos by adding their keys under /etc/pki/rpm-gpg/
-for repokeyurl in $(grep -h '^gpgkey' /etc/yum.repos.d/*.repo | grep -v 'file:///' | sed -e 's/^gpgkey\s*=\s*//' -e 's/\s*$//' -e 's/\$releasever/'$(rpm -q --queryformat '%{version}\n' centos-release)'/g' | sort | uniq); do
+for repokeyurl in $(grep -h '^gpgkey' /etc/yum.repos.d/*.repo | grep -v 'file:///' | sed -e 's/^gpgkey\s*=\s*//' -e 's/\s*$//' -e 's/\$releasever/'$(rpm -q --queryformat '%{version}' centos-release)'/g' | sort | uniq); do
 	key_file="$(echo ${repokeyurl} | sed -e 's%^.*/\([^/]*\)$%\1%')"
 	if [ ! -f "/etc/pki/rpm-gpg/${key_file}" ]; then
 		wget -P /etc/pki/rpm-gpg/ "${repokeyurl}"
@@ -2064,7 +2324,7 @@ cat << EOF | openssl req -new -sha256 -key /etc/pki/tls/private/localhost.key -x
 IT
 Lombardia
 Bergamo
-FleurFlower
+HVP
 Heretic oVirt Project Demo Infrastructure
 ${HOSTNAME}
 root@${HOSTNAME}
@@ -2212,6 +2472,7 @@ chmod 644 /var/www/html/index.html
 
 # Enable Apache
 firewall-offline-cmd --add-service=http
+firewall-offline-cmd --add-service=https
 systemctl enable httpd
 
 # Configure Webmin
@@ -2446,9 +2707,15 @@ fi
 
 # Note: filemanager under GNOME3 does not use spatial mode by default
 
+# TODO: GDM lacks any sort of configuration settings and fills logs because of this - adding empty settings as a workaround - report upstream and remove when fixed
+mkdir -p /etc/dconf/db/gdm.d/locks
+
 # Apply all GNOME3 settings specified above
 rm -f /etc/dconf/db/local
 dconf update
+
+# Remove SELinux notifications
+cat /dev/null > /etc/xdg/autostart/sealertauto.desktop
 
 # Disable graphical initial system setup
 sed -i -e 's/^\(\[daemon\].*\)$/\1\nInitialSetupEnable=False/' /etc/gdm/custom.conf
@@ -2505,18 +2772,28 @@ chmod 750 /usr/local/sbin/dump2backup
 # TODO: Enable Bareos
 systemctl disable bareos-fd
 
-# TODO: Configure desktop
-# TODO: try to set the preferred desktop environment as global default
+# Configure desktop
+# TODO: try to set the preferred desktop environment as a global default
 case "${detype}" in
 	gnome)
+		de_start_command="/usr/bin/gnome-session"
 		;;
 	kde)
+		de_start_command="/usr/bin/startkde"
 		;;
 	xfce)
+		de_start_command="/usr/bin/xfce4-session"
 		;;
 	lxde)
+		de_start_command="/usr/bin/startlxqt"
 		;;
 esac
+cat << EOF > /usr/local/bin/startx2gosession
+#!/bin/bash
+exec ${de_start_command}
+EOF
+chown root:root /usr/local/bin/startx2gosession
+chmod 755 /usr/local/bin/startx2gosession
 
 # Configure root home dir (with utility scripts for basic configuration/log backup)
 mkdir -p /root/{etc,bin,log,tmp,backup}
@@ -2590,6 +2867,7 @@ pushd /etc/selinux/local
 checkmodule -M -m -o myks1stboot.mod myks1stboot.te
 semodule_package -o myks1stboot.pp -m myks1stboot.mod
 semodule -i myks1stboot.pp
+popd
 
 # Set up "first-boot" configuration script (steps that require a fully up system)
 cat << EOF > /etc/rc.d/rc.ks1stboot
@@ -2628,12 +2906,29 @@ elif dmidecode -s system-manufacturer | grep -q 'Xen' ; then
 	rm -f xe-guest-utilities*.rpm
 elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
 	# Note: VMware basic support uses distro-provided packages installed during post phase
-	# TODO: adding _netdev to break possible systemd ordering cycle - investigate further and remove it
-	mkdir -p /mnt/hgfs
-	cat <<- EOM >> /etc/fstab
-	.host:/	/mnt/hgfs	fuse.vmhgfs-fuse	allow_other,auto_unmount,_netdev,x-systemd.requires=vmtoolsd.service,defaults	0 0
+	# Note: adding nofail to avoid making it fail the remote-fs.target if unavailable
+	# TODO: adding network dependency to break possible systemd ordering cycle - investigate further and remove it
+	cat <<- EOM > /etc/systemd/system/mnt-hgfs.mount
+	[Unit]
+	Description=VMware shared folders
+	After=network.target network-online.target vmtoolsd.service
+	Requires=network.target network-online.target vmtoolsd.service
+	Before=multi-user.target
+	Conflicts=umount.target
+	
+	[Mount]
+	What=.host:/
+	Where=/mnt/hgfs
+	Type=fuse.vmhgfs-fuse
+	Options=allow_other,auto_unmount,nofail
+	TimeoutSec=50s
+	
+	[Install]
+	WantedBy=multi-user.target
 	EOM
-	mount /mnt/hgfs
+	chmod 644 /etc/systemd/system/mnt-hgfs.mount
+	systemctl daemon-reload
+	systemctl --now enable mnt-hgfs.mount
 	need_reboot="no"
 elif dmidecode -s system-manufacturer | grep -q "innotek" ; then
 	wget https://dangerous.ovirt.life/support/VirtualBox/VBoxLinuxAdditions.run
@@ -2715,8 +3010,11 @@ check_ip="\$(dig \${current_name}.\${target_domain} A +short)"
 if [ -n "\${check_ip}" -a "\${check_ip}" != "\${main_ip}" ]; then
 	# Name does not match: modify (starting from suffix 2) and resolve it till it is either unknown or matching with configured IP
 	tentative_name_found="false"
+	current_base_name=\$(echo \${current_name} | sed -e 's/-[^-]*\$//')
+	current_name_suffix=\$(echo \${current_name} | sed -n -e 's/^.*\\(-[^-]*\\)\$/\\1/p')
 	for ((name_increment=2;name_increment<=\${multi_instance_max}+1;name_increment=name_increment+1)); do
-		tentative_name="\${current_name}\${name_increment}"
+		# In case of decorated names use increment only on the base name
+		tentative_name="\${current_base_name}\${name_increment}\${current_name_suffix}"
 		check_ip="\$(dig \${tentative_name}.\${target_domain} A +short)"
 		if [ -z "\${check_ip}" -o "\${check_ip}" = "\${main_ip}" ]; then
 			tentative_name_found="true"
@@ -2729,6 +3027,23 @@ if [ -n "\${check_ip}" -a "\${check_ip}" != "\${main_ip}" ]; then
 		# Modify already saved entries
 		# Note: names on secondary zones are kept aligned
 		sed -i -e "s/\\b\${current_name}\\b/\${tentative_name}/g" /etc/hosts
+		# Prepare default (self-signed) certificate
+		# Note: certificate must be recreated to reflect new hostname
+		openssl genrsa 2048 > /etc/pki/tls/private/localhost.key
+		cat <<- EOM | openssl req -new -sha256 -key /etc/pki/tls/private/localhost.key -x509 -days 3650 -out /etc/pki/tls/certs/localhost.crt
+		IT
+		Lombardia
+		Bergamo
+		HVP
+		Heretic oVirt Project Demo Infrastructure
+		\$(hostname)
+		root@\$(hostname)
+		EOM
+		cat /etc/pki/tls/dhparams.pem >> /etc/pki/tls/certs/localhost.crt
+		# Restart services to pick up new certificates
+		cat /etc/pki/tls/private/localhost.key > /etc/webmin/miniserv.pem
+		cat /etc/pki/tls/certs/localhost.crt >> /etc/webmin/miniserv.pem
+		systemctl restart webmin httpd
 	fi
 fi
 
