@@ -2,7 +2,6 @@
 # Note: minimum amount of RAM successfully tested for installation: 2048 MiB from network - 1024 MiB from local media
 
 # Install with commandline (see below for comments):
-# TODO: check each and every custom "hvp_" parameter below for overlap with default dracut/anaconda parameters and convert to using those instead
 # nomodeset elevator=deadline inst.ks=https://dangerous.ovirt.life/hvp-repos/el7/ks/hvp-dc-c7.ks
 # Note: DHCP is assumed to be available on one and only one network (the mgmt one, which will be autodetected, albeit with a noticeable delay) otherwise the ip=nicname:dhcp option must be added, where nicname is the name of the network interface to be used for installation (eg: ens32)
 # Note: to force custom/fixed nic names add ifname=netN:AA:BB:CC:DD:EE:FF where netN is the desired nic name and AA:BB:CC:DD:EE:FF is the MAC address of the corresponding network interface
@@ -12,17 +11,20 @@
 # Note: to access the running installation by SSH (beware of publishing the access informations specified with the sshpw directive below) add the option inst.sshd
 # Note: to force static nic name-to-MAC mapping add the option hvp_nicmacfix
 # Note: to force custom host naming add hvp_myname=myhostname where myhostname is the unqualified (ie without domain name part) hostname
-# Note: to force custom addressing add hvp_{mgmt,lan}=x.x.x.x/yy where x.x.x.x may either be the machine IP or the network address on the given network and yy is the prefix on the given network
+# Note: to force custom addressing add hvp_{mgmt,lan}=x.x.x.x/yy where x.x.x.x may either be the machine IP or the network address on the given network and yy is the prefix on the given network (distinct physical networks cannot be logically conflated)
 # Note: to force custom IPs add hvp_{mgmt,lan}_my_ip=t.t.t.t where t.t.t.t is the chosen IP on the given network
 # Note: to force custom network MTU add hvp_{mgmt,lan}_mtu=zzzz where zzzz is the MTU value
-# Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name
+# Note: to force custom network domain naming add hvp_{mgmt,lan}_domainname=mynet.name where mynet.name is the domain name (if distinct physical networks have conflated domain names, host names will be decorated with a "-zonename" suffix)
 # Note: to force custom multi-instance limit for each vm type (kickstart) add hvp_maxinstances=A where A is the maximum number of instances
 # Note: to force custom AD subdomain naming add hvp_ad_subdomainname=myprefix where myprefix is the subdomain name
 # Note: to force custom NetBIOS domain naming add hvp_netbiosdomain=MYDOM where MYDOM is the NetBIOS domain name
 # Note: to force custom domain action add hvp_joindomain=bool where bool is either "true" (join an existing domain) or "false" (create a new domain/forest)
 # Note: to force custom sysvol replication password add hvp_sysvolpassword=mysysvolsecret where mysysvolsecret is the sysvol replication password
-# Note: to force custom nameserver IP (during installation) add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP
+# Note: to force custom nameserver IP (during installation) add hvp_nameserver=w.w.w.w where w.w.w.w is the nameserver IP (for further DCs this should be an existing AD DC)
 # Note: to force custom forwarders IPs add hvp_forwarders=forw0,forw1,forw2 where forwN are the forwarders IPs
+# Note: to force custom NTP server names/IPs add hvp_ntpservers=ntp0,ntp1,ntp2,ntp3 where ntpN are the NTP servers fully qualified domain names or IPs (for first DC only - further DCs will use the PDC-emulator role holder)
+# Note: to force custom SMTP relay server name/IP add hvp_smtpserver=smtpname where smtpname is the SMTP server fully qualified domain name or IP (used only on nodes and vms)
+# Note: to force custom SMTP relay server to use SMTPS add hvp_smtps (used only on nodes and vms)
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
 # Note: to force custom storage naming add hvp_storagename=mystoragename where mystoragename is the unqualified (ie without domain name part) hostname of the storage
 # Note: to force custom storage IPs add hvp_storage_offset=o where o is the storage IPs base offset on mgmt/lan networks
@@ -31,8 +33,11 @@
 # Note: to force custom admin username add hvp_adminname=myadmin where myadmin is the admin username
 # Note: to force custom admin password add hvp_adminpwd=myothersecret where myothersecret is the admin user password
 # Note: to force custom email address for notification receiver add hvp_receiver_email=name@domain where name@domain is the email address
+# Note: to force custom AD main admin password add hvp_winrootpwd=mywinsecret where mywinsecret is the main AD admin user password
 # Note: to force custom AD further admin username add hvp_winadminname=mywinadmin where mywinadmin is the further AD admin username
 # Note: to force custom AD further admin password add hvp_winadminpwd=mywinothersecret where mywinothersecret is the further AD admin user password
+# Note: to force custom AD LDAP bind username add hvp_adbindname=mybinduser where mybinduser is the AD LDAP bind username
+# Note: to force custom AD LDAP bind password add hvp_adbindpwd=mybindpassword where mybindpassword is the AD LDAP bind user password
 # Note: to force custom keyboard layout add hvp_kblayout=cc where cc is the country code
 # Note: to force custom local timezone add hvp_timezone=VV where VV is the timezone specification
 # Note: to force custom Yum retries on failures add hvp_yum_retries=RR where RR is the number of retries
@@ -52,16 +57,22 @@
 # Note: the default sysvol replication password is HVP_dem0
 # Note: the default nameserver IP is assumed to be 8.8.8.8 during installation (afterwards it will be switched to 127.0.0.1 unconditionally)
 # Note: the default forwarder IP is assumed to be 8.8.8.8
+# Note: the default NTP server names are assumed to be 0.centos.pool.ntp.org 1.centos.pool.ntp.org 2.centos.pool.ntp.org 3.centos.pool.ntp.org (for first DC only - further DCs will use the PDC-emulator role holder)
+# Note: the default SMTP server name is assumed to be empty and the mail relaying will happen locally
+# Note: the default SMTP server connection is assumed to be plaintext with STARTTLS
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
-# Note: the default storage naming uses the "My Little Pony" character name discord for the storage service
+# Note: the default storage naming uses an empty string to disable default configuration of the storage service
 # Note: the default storage IPs base offset on mgmt/lan networks is assumed to be the network address plus 30
 # Note: the default Gluster NFS-shares volume naming uses the name unixshare
 # Note: the default root user password is HVP_dem0
 # Note: the default admin username is hvpadmin
 # Note: the default admin user password is HVP_dem0
 # Note: the default notification email address for receiver is monitoring@localhost
+# Note: the default AD main admin user password is HVP_dem0
 # Note: the default AD further admin username is the same as the admin username with the string "ad" prefixed
 # Note: the default AD further admin user password is HVP_dem0
+# Note: the default AD LDAP bind username is binduser
+# Note: the default AD LDAP bind user password is BindPassw0rd
 # Note: the default keyboard layout is us
 # Note: the default local timezone is UTC
 # Note: the default number of retries after a Yum failure is 10
@@ -152,6 +163,7 @@ unix2dos
 screen
 minicom
 telnet
+ftp
 tree
 audit
 iptraf
@@ -252,12 +264,18 @@ unset my_name
 unset my_nameserver
 unset my_forwarders
 unset my_gateway
+unset my_ntpservers
+unset my_smtpserver
+unset use_smtps
 unset root_password
 unset admin_username
 unset admin_password
 unset notification_receiver
+unset winroot_password
 unset winadmin_username
 unset winadmin_password
+unset adbind_username
+unset adbind_password
 unset keyboard_layout
 unset local_timezone
 unset hvp_repo_baseurl
@@ -269,7 +287,7 @@ nicmacfix="false"
 
 default_node_count="3"
 
-storage_name="discord"
+storage_name=""
 
 declare -A gluster_vol_name
 gluster_vol_name['unixshare']="unixshare"
@@ -315,10 +333,8 @@ domain_join="false"
 
 sysvolrepl_password="HVP_dem0"
 
+# Note: no need to define reverse network domain names since they get automatically defined below
 declare -A reverse_domain_name
-reverse_domain_name['mgmt']="10.20.172.in-addr.arpa"
-reverse_domain_name['lan']="12.20.172.in-addr.arpa"
-reverse_domain_name['internal']="13.20.172.in-addr.arpa"
 
 ad_subdomain_prefix="ad"
 
@@ -331,11 +347,20 @@ my_forwarders="8.8.8.8"
 
 my_name="spike"
 
+my_ntpservers="0.centos.pool.ntp.org,1.centos.pool.ntp.org,2.centos.pool.ntp.org,3.centos.pool.ntp.org"
+
+my_smtpserver=""
+
+use_smtps="false"
+
 # Note: passwords must meet the AD complexity requirements
 root_password="HVP_dem0"
 admin_username="hvpadmin"
 admin_password="HVP_dem0"
+winroot_password="HVP_dem0"
 winadmin_password="HVP_dem0"
+adbind_username="binduser"
+adbind_password="BindPassw0rd"
 keyboard_layout="us"
 local_timezone="UTC"
 
@@ -512,8 +537,13 @@ fi
 
 # Determine storage name
 given_storage_name=$(sed -n -e 's/^.*hvp_storagename=\(\S*\).*$/\1/p' /proc/cmdline)
-if echo "${given_storage_name}" | grep -q '^[-[:alnum:]]\+$' ; then
-	storage_name="${given_storage_name}"
+if [ -n "${given_storage_name}" ]; then
+	# Correctly detect an empty (disabled) storage name
+	if [ "${given_storage_name}" = '""' -o "${given_storage_name}" = "''" ]; then
+		storage_name=""
+	elif echo "${given_storage_name}" | grep -q '^[-[:alnum:]]\+$' ; then
+		storage_name="${given_storage_name}"
+	fi
 fi
 
 # Determine root password
@@ -534,6 +564,11 @@ if [ -n "${given_admin_password}" ]; then
 	admin_password="${given_admin_password}"
 fi
 
+# Determine AD main admin password
+given_winroot_password=$(sed -n -e "s/^.*hvp_winrootpwd=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_winroot_password}" ]; then
+	winroot_password="${given_winroot_password}"
+fi
 # Determine AD further admin username
 given_winadmin_username=$(sed -n -e "s/^.*hvp_winadminname=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_winadmin_username}" ]; then
@@ -547,6 +582,18 @@ fi
 given_winadmin_password=$(sed -n -e "s/^.*hvp_winadminpwd=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_winadmin_password}" ]; then
 	winadmin_password="${given_winadmin_password}"
+fi
+
+# Determine AD LDAP bind username
+given_adbind_username=$(sed -n -e "s/^.*hvp_adbindname=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_adbind_username}" ]; then
+	adbind_username="${given_adbind_username}"
+fi
+
+# Determine AD LDAP bind password
+given_adbind_password=$(sed -n -e "s/^.*hvp_adbindpwd=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_adbind_password}" ]; then
+	adbind_password="${given_adbind_password}"
 fi
 
 # Determine keyboard layout
@@ -625,6 +672,23 @@ fi
 given_forwarders=$(sed -n -e "s/^.*hvp_forwarders=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_forwarders}" ]; then
 	my_forwarders="${given_forwarders}"
+fi
+
+# Determine NTP servers addresses
+given_ntpservers=$(sed -n -e "s/^.*hvp_ntpservers=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_ntpservers}" ]; then
+	my_ntpservers="${given_ntpservers}"
+fi
+
+# Determine SMTP server address
+given_smtpserver=$(sed -n -e "s/^.*hvp_smtpserver=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_smtpserver}" ]; then
+	my_smtpserver="${given_smtpserver}"
+fi
+
+# Determine choice of forcing SMTPS
+if grep -w -q 'hvp_smtps' /proc/cmdline ; then
+	use_smtps="true"
 fi
 
 # Determine gateway address
@@ -807,6 +871,18 @@ if [ -z "${netbios_domain_name}" ]; then
 	netbios_domain_name=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print toupper($1)}')
 fi
 
+# Perform check to detect conflated domain name spaces
+# Note: in presence even of a couple of conflated domain name spaces we will force hostname suffixes on all subnets
+use_hostname_decoration="false"
+added_zones=""
+for zone in "${!network[@]}" ; do
+	if echo "${added_zones}" | grep -q -w $(echo "${domain_name[${zone}]}" | sed -e 's/[.]/\\./g') ; then
+		use_hostname_decoration="true"
+		break
+	fi
+	added_zones="${added_zones} ${domain_name[${zone}]}"
+done
+
 # Create network setup fragment
 # Note: dynamically created here to make use of full autodiscovery above
 # Note: defining statically configured access to autodetected networks
@@ -836,7 +912,7 @@ for zone in "${!network[@]}" ; do
 		fi
 		# Add hostname option on the trusted zone only
 		if [ "${zone}" = "${my_zone}" ]; then
-			further_options="${further_options} --hostname=${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]}"
+			further_options="${further_options} --hostname=${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${zone}]}"
 		fi
 		# Single (plain) interface
 		# TODO: support multiple interfaces per zone (mainly for the physical machine case) - introduce bondopts for each zone
@@ -893,7 +969,6 @@ fi
 EOF
 
 # Create localization setup fragment
-# TODO: allow changing system language too
 cat << EOF > /tmp/full-localization
 # Default system language, additional languages can be enabled installing the appropriate packages below
 lang en_US.UTF-8
@@ -925,9 +1000,23 @@ bootloader --location=mbr --timeout=3 --password=${root_password} --boot-drive=$
 ignoredisk --only-use=${disk_device_name}
 # Automatically create UEFI or BIOS boot partition depending on hardware capabilities
 reqpart --add-boot
-# Simple partitioning: single root and swap
-part swap --fstype swap --recommended --ondisk=${disk_device_name} --asprimary
-part / --fstype xfs --size=100 --grow --ondisk=${disk_device_name} --asprimary
+# Note: the following uses only the first disk as PV and leaves other disks unused if the first one is sufficiently big, otherwise starts using other disks too
+part pv.01 --size=64000 --grow
+# Create a VG
+volgroup DCVG pv.01
+# Define swap space
+logvol swap --vgname=DCVG --name=swap --fstype=swap --recommended
+logvol / --vgname=DCVG --name=root --size=6000
+logvol /var --vgname=DCVG --name=var --size=2000
+logvol /var/cache --vgname=DCVG --name=var_cache --size=5000
+logvol /var/crash --vgname=DCVG --name=var_crash --size=12000
+logvol /var/lib --vgname=DCVG --name=var_lib --size=10000 --grow
+logvol /var/log --vgname=DCVG --name=var_log --size=10000
+logvol /var/log/audit --vgname=DCVG --name=var_log_audit --size=2000
+logvol /var/spool --vgname=DCVG --name=var_spool --size=3000
+logvol /var/tmp --vgname=DCVG --name=var_tmp --size=2000
+logvol /home --vgname=DCVG --name=home --size=1000
+logvol /tmp --vgname=DCVG --name=tmp --size=2000
 EOF
 # Clean up disks from any previous LVM setup
 # Note: it seems that simply zeroing out below is not enough
@@ -1020,10 +1109,15 @@ else
 	EOF
 fi
 
-# Prepare NTPd configuration fragment to be appended later on below
+# Prepare NTPd/NTPdate configuration fragment to be appended later on below
+# Note: using generic configuration for first DC - for further DCs the domain-join script will change it
 mkdir -p /tmp/hvp-ntpd-conf
 pushd /tmp/hvp-ntpd-conf
-cat << EOF > ntp.conf
+for server in $(echo "${my_ntpservers}" | sed -e 's/,/ /g'); do
+		echo "${server}" >> step-tickers
+		echo "server ${server} iburst" >> ntp.conf
+done
+cat << EOF >> ntp.conf
 
 restrict ${network[${my_zone}]} mask ${netmask[${my_zone}]} nomodify notrap
 
@@ -1040,11 +1134,11 @@ EOF
 for zone in "${!network[@]}" ; do
 	if [ "${zone}" = "${my_zone}" ]; then
 		cat <<- EOF >> hosts
-		${my_ip[${zone}]}		${my_name}.${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}
+		${my_ip[${zone}]}		${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${zone}]} ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi)
 		EOF
 	else
 		cat <<- EOF >> hosts
-		${my_ip[${zone}]}		${my_name}.${domain_name[${zone}]}
+		${my_ip[${zone}]}		${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${zone}" ; fi).${domain_name[${zone}]}
 		EOF
 	fi
 done
@@ -1085,7 +1179,7 @@ if [ "${domain_join}" = "true" ]; then
 	action="joining"
 	# Make sure to sync only with the proper time reference (emulate Windows behaviour, using as reference the DC holding the PDC emulator FSMO role)
 	domain_pdc_emulator=\$(dig _ldap._tcp.pdc._msdcs.${ad_subdomain_prefix}.${domain_name[${my_zone}]} SRV +short | awk '{print \$4}' | sed -e 's/[.]\$//')
-	# Note: if we failed to get the PDC emulator, then assume that the given nameserver is a proper reference
+	# Note: if we failed to get the PDC emulator, then assume that the given nameserver (which should be an existing AD DC) is a proper reference
 	if [ -z "\${domain_pdc_emulator}" ]; then
 		domain_pdc_emulator="${my_nameserver}"
 	fi
@@ -1108,14 +1202,14 @@ if [ "${domain_join}" = "true" ]; then
 	# Clean up any previous Samba settings
 	rm -f /etc/samba/smb.conf
 	# Perform domain joining
-	samba-tool domain join ${ad_subdomain_prefix}.${domain_name[${my_zone}]} DC --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" -U administrator@${realm_name} --password='${root_password}'
+	samba-tool domain join ${ad_subdomain_prefix}.${domain_name[${my_zone}]} DC --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" -U administrator@${realm_name} --password='${winroot_password}'
 	res=\$?
 else
 	action="provisioning"
 	# Clean up any previous Kerberos/Samba settings
 	rm -f /etc/krb5.* /etc/samba/smb.conf
 	# Perform domain provisioning
-	samba-tool domain provision --use-rfc2307 --realm=${realm_name} --domain=${netbios_domain_name} --server-role=dc --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" --adminpass='${root_password}'
+	samba-tool domain provision --use-rfc2307 --realm=${realm_name} --domain=${netbios_domain_name} --server-role=dc --dns-backend=SAMBA_INTERNAL --option="interfaces=lo ${nics[${my_zone}]}" --option="bind interfaces only=yes" --adminpass='${winroot_password}'
 	res=\$?
 fi
 if [ \${res} -eq 0 ]; then
@@ -1145,6 +1239,7 @@ if [ \${res} -eq 0 ]; then
 		rm -f /var/lib/samba/private/idmap.ldb
 		rsync -XAavz --password-file=/etc/samba/rsync-sysvol.secret rsync://\${domain_pdc_emulator}/SysVolRepl/idmap.ldb /var/lib/samba/private/
 		restorecon -v /var/lib/samba/private/idmap.ldb
+		net cache flush
 		# Force removal of gencache
 		# TODO: maybe needed only when using winbindd, not winbind - remove the following line if it is so
 		rm -f /var/cache/samba/gencache.tdb
@@ -1453,213 +1548,58 @@ if [ \${res} -eq 0 ]; then
 		EOM
 		ldbmodify -H /var/lib/samba/private/sam.ldb /etc/samba/sudo_attrs.ldif --option="dsdb:schema update allowed"=true
 		ldbmodify -H /var/lib/samba/private/sam.ldb /etc/samba/sudo_classes.ldif --option="dsdb:schema update allowed"=true
-	fi
-	# Enable and start Samba AD DC
-	systemctl --now enable samba-ad-dc
-	# Reset sysvol ACLs 
-	# Note: needs samba running - adding a sleep to be safe
-	sleep 30
-	samba-tool ntacl sysvolreset
-	# Restart NTPd
-	systemctl restart ntpd
-	if [ "${domain_join}" != "true" ]; then
-		# Customize the rsyncd socket/service for sysvol replication
-		# Note: adapted from https://wiki.samba.org/index.php/Rsync_based_SysVol_replication_workaround
-		mkdir -p /etc/systemd/system/rsyncd.socket.d
-		cat <<- EOM > /etc/systemd/system/rsyncd.socket.d/custom-bindlimit.conf
-		[Socket]
-		BindToDevice = ${nics[${my_zone}]}
+		# Modify AD schema for 389-ds compatibility
+		# Note: adapted from https://fy.blackhats.net.au/blog/html/2018/04/18/making_samba_4_the_default_ldap_server.html
+		cat <<- EOM > /etc/samba/389ds_nsuniqueid_compat.ldif
+		dn: CN=nsUniqueId,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: attributeSchema
+		attributeID: 2.16.840.1.113730.3.1.542
+		cn: nsUniqueId
+		name: nsUniqueId
+		lDAPDisplayName: nsUniqueId
+		description: MANDATORY: nsUniqueId compatibility
+		attributeSyntax: 2.5.5.10
+		oMSyntax: 4
+		isSingleValued: TRUE
+		searchFlags: 9
 		EOM
-		mkdir -p /etc/systemd/system/rsyncd@.service.d
-		cat <<- EOM > /etc/systemd/system/rsyncd@.service.d/custom-scheduling.conf
-		[Service]
-		IOSchedulingClass = idle
-		Nice = 10
-		CPUSchedulingPolicy = idle
+		cat <<- EOM > /etc/samba/389ds_nsorgperson_compat.ldif
+		dn: CN=nsOrgPerson,CN=Schema,CN=Configuration,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: classSchema
+		governsID: 2.16.840.1.113730.3.2.334
+		cn: nsOrgPerson
+		name: nsOrgPerson
+		description: MANDATORY: Netscape DS compat person
+		lDAPDisplayName: nsOrgPerson
+		subClassOf: top
+		objectClassCategory: 3
+		defaultObjectCategory: CN=nsOrgPerson,CN=Schema,CN=Configuration,\${domain_top_dn}
+		mayContain: nsUniqueId
 		EOM
-		chmod 644 /etc/systemd/system/rsync*.d/*.conf
-		chown root:root /etc/systemd/system/rsync*.d/*.conf
-		# Allow through firewall
-		firewall-cmd --permanent --add-service=rsyncd
-		firewall-cmd --reload
-		# Allow through SELinux
-		# TODO: define a more fine grained rule to allow access only to the required subtrees
-		setsebool -P rsync_export_all_ro on
-		# Create Rsync configuration for sysvol replication
-		# Note: the second section will be used only once for each further DC to initially align BUILTIN ids
-		cat <<- EOM > /etc/rsyncd.conf
-		[SysVol]
-		path = /var/lib/samba/sysvol/
-		comment = Samba Sysvol Share
-		uid = root
-		gid = root
-		read only = yes
-		secrets file = /etc/samba/rsync-sysvol.secret
-
-		[SysVolRepl]
-		path = /var/lib/samba/sysvolrepl/
-		comment = Samba Sysvol Replication Support Share
-		uid = root
-		gid = root
-		read only = yes
-		secrets file = /etc/samba/rsync-sysvol.secret
-		EOM
-		chmod 644 /etc/rsyncd.conf
-		chown root:root /etc/rsyncd.conf
-		# Apply rsyncd systemd configuration
-		systemctl daemon-reload
-		systemctl --now enable rsyncd.socket
-		# Note: it seems that we need to allow some time for the internal DNS to come up
-		sleep 30
-		# Add DNS reverse zone
-		samba-tool dns zonecreate ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} --username=administrator --password='${root_password}'
-		# Add DNS A and PTR records for known machines
-		# Add DNS PTR record for ourselves
-	        samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(echo ${my_ip[${my_zone}]} | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
-		# Add round-robin-resolved name for CTDB-controlled NFS/CIFS services
-		# TODO: find a way to add A records with a TTL of 1
-EOF
-for ((i=0;i<${active_storage_node_count};i=i+1)); do
-	cat <<- EOF >> rc.samba-dc
-	                samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${storage_name}	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password='${root_password}'
-	                samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
-	EOF
-done
-cat << EOF >> rc.samba-dc
-		# Add generic groups with Unix attributes
-		samba-tool group add "Unix Admins" --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10002 --username=administrator --password='${root_password}'
-		samba-tool group add "Unix Users" --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=10003 --username=administrator --password='${root_password}'
-		# Add newly created "Unix Admins" group to the "Domain Admins" group
-		samba-tool group addmembers "Domain Admins" "Unix Admins"
-		# Add an user with Unix attributes
-		# Note: newly created users will have default AD primary group set to the "Domain Users" (as per Windows AD default)
-		# Note: by default the "Domain Users" group has no gidNumber (even if it seems to have gidNumber 100 but that could be xidNumber)
-		# Note: whether AD or RFC2307bis primary group has precedence depends on idmapping backend on clients - Winbind >= 4.6.0 has unix_primary_group parameter
-		# TODO: find a proper idmapping parameter for SSSD too
-		# TODO: find a general way to define uid/gid values
-		# TODO: GPO files inside sysvol have an unmapped ownership with a strange uid, eg: 3000004 - find out why and correct - may be unneeded: sysvol files ownership should not matter (they seem to be for uids/gids not registered in AD on purpose)
-		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=10001 --username=administrator --password='${root_password}'
-		# Add newly created user to the "Unix Admins" group
-		samba-tool group addmembers "Unix Admins" "${winadmin_username}"
-		# Note: do not add gidNumber 10000 to "Domain Admins" - it seems that having a gidNumber may interfer with sysvol files ownership - https://www.spinics.net/lists/samba/msg143752.html
-		# Add gidNumber 10001 to "Domain Users"
-		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
-		\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "Domain Users" | awk '{print \$1}') | grep '^dn:')
+		cat <<- EOM > /etc/samba/389ds_user_compat.ldif
+		dn: CN=User,CN=Schema,CN=Configuration,\${domain_top_dn}
 		changetype: modify
-		add: gidNumber
-		gidNumber: 10001
+		replace: auxiliaryClass
+		auxiliaryClass: posixAccount
+		auxiliaryClass: shadowAccount
+		auxiliaryClass: nsOrgPerson
 		EOM
-		# TODO: Add uidNumber 10000 and gidNumber 10001 to "administrator"
-		# TODO: verify whether this too may impact sysvol files ownership - https://www.spinics.net/lists/samba/msg143752.html
-		# TODO: on the other side the current default of 0 may be improper: https://bugzilla.samba.org/show_bug.cgi?id=9837
-		#cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
-		#\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "administrator" | awk '{print \$1}') | grep '^dn:')
-		#changetype: modify
-		#add: uidNumber
-		#uidNumber: 10000
-		#add: gidNumber
-		#gidNumber: 10001
-		#EOM
-		# Load automounter maps for HVP default NFS shares
-		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
-		dn: ou=automount,\${domain_top_dn}
-		changetype: add
-		objectClass: top
-		objectClass: organizationalUnit
-		description: Container for Unix automounter maps
-		ou: automount
-		name: automount
-		
-		dn: ou=auto.master,ou=automount,\${domain_top_dn}
-		changetype: add
-		objectClass: top
-		objectClass: organizationalUnit
-		objectClass: automountMap
-		ou: auto.master
-		name: auto.master
-		automountMapName: auto.master
-		
-		dn: cn=/-,ou=auto.master,ou=automount,\${domain_top_dn}
-		changetype: add
-		objectClass: top
-		objectClass: automount
-		objectClass: container
-		cn: /-
-		name: /-
-		automountKey: /-
-		automountInformation: auto.direct
-		
-		dn: ou=auto.direct,ou=automount,\${domain_top_dn}
-		changetype: add
-		objectClass: top
-		objectClass: organizationalUnit
-		objectClass: automountMap
-		ou: auto.direct
-		name: auto.direct
-		automountMapName: auto.direct
-		
-		dn: cn=/home/${ad_subdomain_prefix}.${domain_name[${my_zone}]},ou=auto.direct,ou=automount,\${domain_top_dn}
-		changetype: add
-		objectClass: top
-		objectClass: automount
-		objectClass: container
-		cn: /home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}
-		name: /home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}
-		automountKey: /home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}
-		automountInformation: -fstype=nfs,rw ${storage_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]}:/${gluster_vol_name['unixshare']}/homes
-		
-		dn: cn=/home/groups,ou=auto.direct,ou=automount,\${domain_top_dn}
-		changetype: add
-		objectClass: top
-		objectClass: automount
-		objectClass: container
-		cn: /home/groups
-		name: /home/groups
-		automountKey: /home/groups
-		automountInformation: -fstype=nfs,rw ${storage_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]}:/${gluster_vol_name['unixshare']}/groups
-		
-		dn: cn=/usr/local/software,ou=auto.direct,ou=automount,\${domain_top_dn}
-		changetype: add
-		objectClass: top
-		objectClass: automount
-		objectClass: container
-		cn: /usr/local/software
-		name: /usr/local/software
-		automountKey: /usr/local/software
-		automountInformation: -fstype=nfs,ro ${storage_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]}:/${gluster_vol_name['unixshare']}/software
-		EOM
-		# Load sudo rules for HVP defaults and groups
-		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
-		dn: ou=sudoers,\${domain_top_dn}
-		changetype: add
-		objectClass: top
-		objectClass: organizationalUnit
-		description: Container for Unix sudo rules
-		ou: sudoers
-		name: sudoers
-		
-		dn: CN=defaults,OU=sudoers,\${domain_top_dn}
-		changetype: add
-		objectClass: top
-		objectClass: sudoRole
-		cn: defaults
-		name: defaults
-		sudoOption: !authenticate
-		sudoOption: env_keep+=SSH_AUTH_SOCK
-		
-		dn: CN=unixadminsrule,OU=sudoers,\${domain_top_dn}
-		changetype: add
-		objectClass: top
-		objectClass: sudoRole
-		cn: unixadminsrule
-		name: unixadminsrule
-		sudoHost: ALL
-		sudoCommand: ALL
-		sudoRunAsUser: root
-		sudoUser: %Unix Admins
-		EOM
-		# Note: set proper ACLs on sudo entries (thanks to http://ghanima.net/doku.php?id=blog:sssdandsamba4aclgotcha )
-		samba-tool dsacl set -H /var/lib/samba/private/sam.ldb --objectdn="OU=sudoers,\${domain_top_dn}" --sddl="(A;CI;RPLCRC;;;DC)"
+		ldbmodify -H /var/lib/samba/private/sam.ldb /etc/samba/389ds_nsuniqueid_compat.ldif --option="dsdb:schema update allowed"=true
+		ldbmodify -H /var/lib/samba/private/sam.ldb /etc/samba/389ds_nsorgperson_compat.ldif --option="dsdb:schema update allowed"=true
+		ldbmodify -H /var/lib/samba/private/sam.ldb /etc/samba/389ds_user_compat.ldif --option="dsdb:schema update allowed"=true
+		# Add indexing, tombstone and copy flags on POSIX attributes
+		# Note: adapted from https://fy.blackhats.net.au/blog/html/2018/04/18/making_samba_4_the_default_ldap_server.html
+		samba-tool schema attribute modify uid --searchflags="fATTINDEX,fPRESERVEONDELETE" --option="dsdb:schema update allowed"=true
+		samba-tool schema attribute modify uidnumber --searchflags="fATTINDEX,fPRESERVEONDELETE" --option="dsdb:schema update allowed"=true
+		samba-tool schema attribute modify gidnumber --searchflags="fATTINDEX,fPRESERVEONDELETE" --option="dsdb:schema update allowed"=true
+		samba-tool schema attribute modify x509-cert --searchflags="fPRESERVEONDELETE" --option="dsdb:schema update allowed"=true
+		samba-tool schema attribute modify gecos --searchflags="fPRESERVEONDELETE" --option="dsdb:schema update allowed"=true
+		samba-tool schema attribute modify loginShell --searchflags="fPRESERVEONDELETE" --option="dsdb:schema update allowed"=true
+		samba-tool schema attribute modify home-directory --searchflags="fCOPY,fPRESERVEONDELETE" --option="dsdb:schema update allowed"=true
 		# Create default OUs for HVP servers
 		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
 		dn: ou=File Servers,\${domain_top_dn}
@@ -1718,7 +1658,246 @@ cat << EOF >> rc.samba-dc
 		ou: Gateway Servers
 		name: Gateway Servers
 		EOM
+	fi
+	# Enable and start Samba AD DC
+	systemctl --now enable samba
+	# Reset sysvol ACLs 
+	# Note: needs samba running - adding a sleep to be safe
+	sleep 30
+	if [ "${domain_join}" = "true" ]; then
+		# Perform first-time rsync for sysvol replication
+		rsync -XAavz --delete-after --password-file=/etc/samba/rsync-sysvol.secret rsync://\${domain_pdc_emulator}/SysVol/ /var/lib/samba/sysvol/ > /var/log/samba/sysvol-replication.log 2>&1
+	fi
+	samba-tool ntacl sysvolreset
+	# Restart NTPd
+	systemctl restart ntpd
+	if [ "${domain_join}" != "true" ]; then
+		# Customize the rsyncd socket/service for sysvol replication
+		# Note: adapted from https://wiki.samba.org/index.php/Rsync_based_SysVol_replication_workaround
+		mkdir -p /etc/systemd/system/rsyncd.socket.d
+		cat <<- EOM > /etc/systemd/system/rsyncd.socket.d/custom-bindlimit.conf
+		[Socket]
+		BindToDevice = ${nics[${my_zone}]}
+		EOM
+		mkdir -p /etc/systemd/system/rsyncd@.service.d
+		cat <<- EOM > /etc/systemd/system/rsyncd@.service.d/custom-scheduling.conf
+		[Service]
+		IOSchedulingClass = idle
+		Nice = 10
+		CPUSchedulingPolicy = idle
+		EOM
+		chmod 644 /etc/systemd/system/rsync*.d/*.conf
+		chown root:root /etc/systemd/system/rsync*.d/*.conf
+		# Allow through firewall
+		firewall-cmd --permanent --add-service=rsyncd
+		firewall-cmd --reload
+		# Allow through SELinux
+		# TODO: define a more fine grained rule to allow access only to the required subtrees
+		setsebool -P rsync_export_all_ro on
+		# Create Rsync configuration for sysvol replication
+		# Note: the second section will be used only once for each further DC to initially align BUILTIN ids
+		cat <<- EOM > /etc/rsyncd.conf
+		[SysVol]
+		path = /var/lib/samba/sysvol/
+		comment = Samba Sysvol Share
+		uid = root
+		gid = root
+		read only = yes
+		secrets file = /etc/samba/rsync-sysvol.secret
+
+		[SysVolRepl]
+		path = /var/lib/samba/sysvolrepl/
+		comment = Samba Sysvol Replication Support Share
+		uid = root
+		gid = root
+		read only = yes
+		secrets file = /etc/samba/rsync-sysvol.secret
+		EOM
+		chmod 644 /etc/rsyncd.conf
+		chown root:root /etc/rsyncd.conf
+		# Apply rsyncd systemd configuration
+		systemctl daemon-reload
+		systemctl --now enable rsyncd.socket
+		# Note: it seems that we need to allow some time for the internal DNS to come up
+		sleep 30
+		# Add DNS reverse zone
+		samba-tool dns zonecreate ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} --username=administrator --password='${winroot_password}'
+		# Add DNS A and PTR records for known machines
+		# Add DNS PTR record for ourselves
+	        samba-tool dns add ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(echo ${my_ip[${my_zone}]} | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]} --username=administrator --password='${winroot_password}'
+EOF
+if [ -n "${storage_name}" ]; then
+	cat <<- EOF >> rc.samba-dc
+			# TODO: joining for CTDB-controlled NFS/CIFS services fails while specifying a custom OU - preseeding here as a workaround - remove when fixed upstream
+			samba-tool computer create $(echo ${storage_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi) | awk '{print toupper($0)}') --computerou="OU=File Servers" --username=administrator --password='${winroot_password}'
+			# Add round-robin-resolved name for CTDB-controlled NFS/CIFS services
+			# TODO: find a way to add A records with a TTL of 1
+	EOF
+	for ((i=0;i<${active_storage_node_count};i=i+1)); do
+		cat <<- EOF >> rc.samba-dc
+		                samba-tool dns add ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${storage_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi)	A	$(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} +) --username=administrator --password='${winroot_password}'
+		                samba-tool dns add ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(ipmat $(ipmat $(ipmat ${my_ip[${my_zone}]} ${my_ip_offset} -) ${storage_ip_offset} +) ${i} + | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${storage_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]} --username=administrator --password='${winroot_password}'
+		EOF
+	done
+fi
+cat << EOF >> rc.samba-dc
+		# Make sure that the builtin Administrator account does never expire
+		# Note: password expiration inspection and modification performed as per https://lists.samba.org/archive/samba/2017-March/207405.html
+		samba-tool user setexpiry Administrator --noexpiry --username=administrator --password='${winroot_password}'
+		# Add generic groups with Unix attributes
+		samba-tool group add "Unix Admins" --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=100002 --username=administrator --password='${winroot_password}'
+		samba-tool group add "Unix Users" --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --gid-number=100003 --username=administrator --password='${winroot_password}'
+		# Add newly created "Unix Admins" group to the "Domain Admins" group
+		samba-tool group addmembers "Domain Admins" "Unix Admins"
+		# Add an user with Unix attributes
+		# Note: newly created users will have default AD primary group set to the "Domain Users" (as per Windows AD default)
+		# Note: by default the "Domain Users" group has no gidNumber (even if it seems to have gidNumber 100 but that could be xidNumber)
+		# Note: whether AD or RFC2307bis primary group has precedence depends on idmapping backend on clients - Winbind >= 4.6.0 has unix_primary_group parameter
+		# Note: all accounts will follow password expiration rules by default
+		# TODO: add --home-drive=H and --home-directory=\\discord.ad.lan.private\Users\username when storage_name is not null
+		# TODO: find a proper idmapping parameter for SSSD too
+		# TODO: find a general way to define uid/gid values
+		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=100001 --username=administrator --password='${winroot_password}'
+		# Add displayName (required by some apps, like Nextcloud) to the newly created user
+		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "${winadmin_username}" | awk '{print \$1}') | grep '^dn:')
+		changetype: modify
+		add: displayName
+		displayName: HVP AD Admin
+		EOM
+		# Add newly created user to the "Unix Admins" group
+		samba-tool group addmembers "Unix Admins" "${winadmin_username}"
+		# Note: do not add gidNumber 100000 to "Domain Admins" - it seems that having a gidNumber may interfer with sysvol files ownership - https://www.spinics.net/lists/samba/msg143752.html
+		# TODO: GPO files inside sysvol have an unmapped ownership with a strange uid, eg: 3000004 - find out why and correct - may be unneeded: sysvol files ownership should not matter (they seem to be for uids/gids not registered in AD on purpose)
+		# Add gidNumber 100001 to "Domain Users"
+		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "Domain Users" | awk '{print \$1}') | grep '^dn:')
+		changetype: modify
+		add: gidNumber
+		gidNumber: 100001
+		EOM
+		# TODO: Add uidNumber 10000 and gidNumber 100001 to "administrator"
+		# TODO: verify whether this too may impact sysvol files ownership - https://www.spinics.net/lists/samba/msg143752.html
+		# TODO: on the other side the current default of 0 may be improper: https://bugzilla.samba.org/show_bug.cgi?id=9837
+		#cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		#\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "administrator" | awk '{print \$1}') | grep '^dn:')
+		#changetype: modify
+		#add: uidNumber
+		#uidNumber: 10000
+		#add: gidNumber
+		#gidNumber: 100001
+		#EOM
+		# Add a non-expiring generic user with Unix attributes for anonymous-like binding via LDAPS
+		# TODO: use samba-tool dsacl to grant read permissions on the memberOf attribute for the whole directory to the bind user (optionally required by Nextcloud)
+		samba-tool user create "${adbind_username}" '${adbind_password}' --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/var/tmp --uid-number=10002 --login-shell=/bin/false --gid-number=100001 --username=administrator --password='${winroot_password}'
+		samba-tool user setexpiry "${adbind_username}" --noexpiry --username=administrator --password='${winroot_password}'
+EOF
+if [ -n "${storage_name}" ]; then
+	cat <<- EOF >> rc.samba-dc
+			# Load automounter maps for HVP default NFS shares
+			cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+			dn: ou=automount,\${domain_top_dn}
+			changetype: add
+			objectClass: top
+			objectClass: organizationalUnit
+			description: Container for Unix automounter maps
+			ou: automount
+			name: automount
+			
+			dn: ou=auto.master,ou=automount,\${domain_top_dn}
+			changetype: add
+			objectClass: top
+			objectClass: organizationalUnit
+			objectClass: automountMap
+			ou: auto.master
+			name: auto.master
+			automountMapName: auto.master
+			
+			dn: cn=/-,ou=auto.master,ou=automount,\${domain_top_dn}
+			changetype: add
+			objectClass: top
+			objectClass: automount
+			objectClass: container
+			cn: /-
+			name: /-
+			automountKey: /-
+			automountInformation: auto.direct
+			
+			dn: ou=auto.direct,ou=automount,\${domain_top_dn}
+			changetype: add
+			objectClass: top
+			objectClass: organizationalUnit
+			objectClass: automountMap
+			ou: auto.direct
+			name: auto.direct
+			automountMapName: auto.direct
+			
+			dn: cn=/home/${ad_subdomain_prefix}.${domain_name[${my_zone}]},ou=auto.direct,ou=automount,\${domain_top_dn}
+			changetype: add
+			objectClass: top
+			objectClass: automount
+			objectClass: container
+			cn: /home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}
+			name: /home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}
+			automountKey: /home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}
+			automountInformation: -fstype=nfs,rw ${storage_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]}:/${gluster_vol_name['unixshare']}/homes
+			
+			dn: cn=/home/groups,ou=auto.direct,ou=automount,\${domain_top_dn}
+			changetype: add
+			objectClass: top
+			objectClass: automount
+			objectClass: container
+			cn: /home/groups
+			name: /home/groups
+			automountKey: /home/groups
+			automountInformation: -fstype=nfs,rw ${storage_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]}:/${gluster_vol_name['unixshare']}/groups
+			
+			dn: cn=/usr/local/software,ou=auto.direct,ou=automount,\${domain_top_dn}
+			changetype: add
+			objectClass: top
+			objectClass: automount
+			objectClass: container
+			cn: /usr/local/software
+			name: /usr/local/software
+			automountKey: /usr/local/software
+			automountInformation: -fstype=nfs,ro ${storage_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]}:/${gluster_vol_name['unixshare']}/software
+			EOM
+	EOF
+fi
+cat << EOF >> rc.samba-dc
+		# Load sudo rules for HVP defaults and groups
+		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+		dn: ou=sudoers,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: organizationalUnit
+		description: Container for Unix sudo rules
+		ou: sudoers
+		name: sudoers
 		
+		dn: CN=defaults,OU=sudoers,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: sudoRole
+		cn: defaults
+		name: defaults
+		sudoOption: !authenticate
+		sudoOption: env_keep+=SSH_AUTH_SOCK
+		
+		dn: CN=unixadminsrule,OU=sudoers,\${domain_top_dn}
+		changetype: add
+		objectClass: top
+		objectClass: sudoRole
+		cn: unixadminsrule
+		name: unixadminsrule
+		sudoHost: ALL
+		sudoCommand: ALL
+		sudoRunAsUser: root
+		sudoUser: %Unix Admins
+		EOM
+		# Note: set proper ACLs on sudo entries (thanks to http://ghanima.net/doku.php?id=blog:sssdandsamba4aclgotcha )
+		# Note: general intro about dsacl set can be found in https://kiljan.org/2017/12/22/setting-up-a-lightweight-authentication-back-end/
+		samba-tool dsacl set -H /var/lib/samba/private/sam.ldb --objectdn="OU=sudoers,\${domain_top_dn}" --sddl="(A;CI;RPLCRC;;;DC)"
 		# Prepare an idmap-db cold backup for further DCs (to keep BUILTIN ids aligned)
 		tdbbackup -s .bak /var/lib/samba/private/idmap.ldb
 		mkdir -p /var/lib/samba/sysvolrepl
@@ -1727,7 +1906,7 @@ cat << EOF >> rc.samba-dc
 		# Note: it seems that we need to allow some time for the internal DNS to come up
 		sleep 30
 		# Add DNS PTR record for ourselves
-	        samba-tool dns add ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(echo ${my_ip[${my_zone}]} | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${my_name}.${ad_subdomain_prefix}.${domain_name[${my_zone}]} --username=administrator --password='${root_password}'
+	        samba-tool dns add ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]} ${reverse_domain_name[${my_zone}]} $(echo ${my_ip[${my_zone}]} | sed -e "s/^$(echo ${network_base[${my_zone}]} | sed -e 's/[.]/\\./g')[.]//") PTR ${my_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi).${ad_subdomain_prefix}.${domain_name[${my_zone}]} --username=administrator --password='${winroot_password}'
 		# Setup an rsync cron job for sysvol replication
 		cat <<- EOM > /etc/cron.d/sysvol-replication
 		# Run unidirectional sysvol replication from PDC emulator once every 5 minutes
@@ -1736,6 +1915,12 @@ cat << EOF >> rc.samba-dc
 		chmod 644 /etc/cron.d/sysvol-replication
 		chown root:root /etc/cron.d/sysvol-replication
 	fi
+	# Customize TLS key/cert/CA for LDAPS under /var/lib/samba/private/tls
+	# TODO: use our own X.509 certificate (signed by our own CA)
+	cat /etc/pki/tls/private/localhost.key > /var/lib/samba/private/tls/key.pem
+	cat /etc/pki/tls/certs/localhost.crt > /var/lib/samba/private/tls/cert.pem
+	cat /etc/pki/tls/certs/localhost.crt > /var/lib/samba/private/tls/ca.pem
+	systemctl restart samba
 	# Reconfigure NSS to use also Winbind (useful for "getent" use and filesystem listings)
 	# Note: Winbind is automatically started by Samba in AD DC mode anyway
 	sed -i -r -e '/^(passwd|group):\s/s/\$/ winbind/g' /etc/nsswitch.conf
@@ -1751,13 +1936,46 @@ cat << EOF >> rc.samba-dc
 		echo "DNS1=127.0.0.1" >> "\${nic_cfg_file}"
 		echo "DOMAIN=${ad_subdomain_prefix}.${domain_name[${my_zone}]}" >> "\${nic_cfg_file}"
 		nmcli connection reload
-		# TODO: Connection reload seems not enough - restarting NetworkManager service regenerates /etc/resolv.conf as expected - investigate and correct nmcli command above
-		systemctl restart NetworkManager
+		nmcli connection up "\${nic_name}"
 	done
+	# TODO: samba-tool backup fails on new DCs - forcing a RID allocation as a workaround - remove when fixed upstream
+	samba-tool user create "\$(hostname -s)-init" \$(pwgen -1cns 50 1)
+	samba-tool user delete "\$(hostname -s)-init"
 else
 	logger -s -p "local7.err" -t "rc.samba-dc" "Error while \${action} Samba AD DC domain: \${res}"
 	exit 255
 fi
+
+# Configure PHP (set timezone, increase execution time and memory/request/filesize limits)
+sed -i -e 's/^\(.*max_execution_time\).*$/\1 = 3600/' -e 's/^\(.*memory_limit\).*$/\1 = 800M/' -e 's/^\(.*post_max_size\).*$/\1 = 400M/' -e 's/^\(.*upload_max_filesize\).*$/\1 = 500M/' -e "s>^.*date\\.timezone\\s*=.*\$>date.timezone = ${local_timezone}>" /etc/php.ini
+
+# Configure phpLDAPAdmin (allow only through HTTPS; allow from localhost and our networks only)
+sed -i -e 's/^\\(\\s*\\)\\(Order\\s*\\).*\\\$/\\1\\2allow,deny/' -e "/^\\\\s*Allow\\\\s*from\\\\s*127\\\\.0\\\\.0\\\\.1/s>127\\\\.0\\\\.0\\\\.1.*\$>${allowed_addr}>" -e "/^\\\\s*Require\\\\s*local/s>local.*\\$>ip ${allowed_addr}>" -e 's;^\\(\\s*\\)\\(<IfModule\\s*mod_authz_core\\.c>.*\\)\$;\\1RewriteEngine On\\n\\1RewriteCond %{HTTPS} !=on\\n\\1RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]\\n\\1\\2;' /etc/httpd/conf.d/phpldapadmin.conf
+# Add Apache alias for phpPgAdmin
+cat <<- EOM >> /etc/httpd/conf.d/phpldapadmin.conf
+
+Alias /ds /usr/share/phpldapadmin/htdocs
+
+<Location /ds>
+    RewriteEngine On
+    RewriteCond %{HTTPS} !=on
+    RewriteRule ^.*\$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]
+    <IfModule mod_authz_core.c>
+        # Apache 2.4
+        Require ip ${allowed_addr}
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        # Apache 2.2
+        Order allow,deny
+        Deny from all
+        Allow from ${allowed_addr}
+        Allow from ::1
+    </IfModule>
+</Location>
+EOM
+# Restart Apache to apply configuration changes
+systemctl restart httpd
+
 EOF
 
 popd
@@ -1785,7 +2003,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2019032601"
+script_version="2020010701"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -1829,35 +2047,36 @@ cat /etc/hosts >> /tmp/post.out
 
 # Hardcoded defaults
 
-unset network
-unset netmask
-unset network_base
-unset mtu
-unset domain_name
-unset reverse_domain_name
-unset test_ip
 unset multi_instance_max
 unset nicmacfix
+unset my_smtpserver
+unset use_smtps
 unset notification_receiver
+unset local_timezone
 unset yum_sleep_time
 unset yum_retries
+unset custom_yum_conf
 unset hvp_repo_baseurl
 unset hvp_repo_gpgkey
 
 # Define associative arrays
-declare -A network netmask network_base mtu
-declare -A domain_name
-declare -A reverse_domain_name
-declare -A test_ip
 declare -A hvp_repo_baseurl
 declare -A hvp_repo_gpgkey
+
+my_smtpserver=""
+
+use_smtps="false"
 
 nicmacfix="false"
 
 multi_instance_max="9"
 
+local_timezone="UTC"
+
 yum_sleep_time="10"
 yum_retries="10"
+
+custom_yum_conf="false"
 
 notification_receiver="monitoring@localhost"
 
@@ -1873,6 +2092,17 @@ yum() {
 	while [ ${result} -ne 0 -a ${retries_left} -gt 0 ]; do
 		sleep ${yum_sleep_time}
 		echo "Retrying yum operation (${retries_left} retries left at $(date '+%Y-%m-%d %H:%M:%S')) after failure (exit code ${result})" 1>&2
+		# Note: it seems that NetworkManager may break down if updated inside chroot - attempting workaround here
+		nmcli dev
+		nmcli connection
+		nmcli connection reload
+		nmcli dev
+		nmcli connection
+		# Note: adding resolution/ping of some well-known public hosts to force wake-up of buggy DNS/gateway implementations (VMware Workstation 12 suspected)
+		for target in www.google.com www.centos.org mirrorlist.centos.org ; do
+			/bin/nslookup "${target}"
+			/bin/ping -c 4 "${target}"
+		done
 		# Note: adding a complete cleanup before retrying
 		/usr/bin/yum clean all
 		/usr/bin/yum "$@"
@@ -1912,6 +2142,12 @@ if echo "${given_multi_instance_max}" | grep -q '^[[:digit:]]\+$' ; then
 	multi_instance_max="${given_multi_instance_max}"
 fi
 
+# Determine local timezone
+given_local_timezone=$(sed -n -e "s/^.*hvp_timezone=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_local_timezone}" ]; then
+	local_timezone="${given_local_timezone}"
+fi
+
 # Determine number of Yum retries on failure
 given_yum_retries=$(sed -n -e 's/^.*hvp_yum_retries=\(\S*\).*$/\1/p' /proc/cmdline)
 if echo "${given_yum_retries}" | grep -q '^[[:digit:]]\+$' ; then
@@ -1924,10 +2160,51 @@ if echo "${given_yum_sleep_time}" | grep -q '^[[:digit:]]\+$' ; then
 	yum_sleep_time="${given_yum_sleep_time}"
 fi
 
+# Determine custom URLs for repositories and GPG keys
+for repo_name in $(egrep -o 'hvp_[^=]*_(baseurl|gpgkey)' /proc/cmdline | sed -e 's/^hvp_//' -e 's/_baseurl$//' -e 's/_gpgkey$//' | sort -u); do
+	# Take URLs from kernel commandline
+	given_repo_baseurl=$(sed -n -e "s/^.*hvp_${repo_name}_baseurl=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+	if [ -n "${given_repo_baseurl}" ]; then
+		# Correctly detect an empty (disabled) repo URL
+		if [ "${given_repo_baseurl}" = '""' -o "${given_repo_baseurl}" = "''" ]; then
+			unset hvp_repo_baseurl[${repo_name}]
+		else
+			hvp_repo_baseurl[${repo_name}]="${given_repo_baseurl}"
+		fi
+	fi
+	given_repo_gpgkey=$(sed -n -e "s/^.*hvp_${repo_name}_gpgkey=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+	if [ -n "${given_repo_gpgkey}" ]; then
+		# Correctly detect an empty (disabled) gpgkey URL
+		if [ "${given_repo_gpgkey}" = '""' -o "${given_repo_gpgkey}" = "''" ]; then
+			unset hvp_repo_gpgkey[${repo_name}]
+		else
+			hvp_repo_gpgkey[${repo_name}]="${given_repo_gpgkey}"
+		fi
+	fi
+done
+# Verify whether a custom conf has been established (either from commandline parsing or from parameter configuration files)
+url_count="${#hvp_repo_baseurl[@]}"
+key_count="${#hvp_repo_gpgkey[@]}"
+ref_count=$((url_count + key_count))
+if [ "${ref_count}" -gt 1 ]; then
+	custom_yum_conf="true"
+fi
+
 # Determine notification receiver email address
 given_receiver_email=$(sed -n -e "s/^.*hvp_receiver_email=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
 if [ -n "${given_receiver_email}" ]; then
 	notification_receiver="${given_receiver_email}"
+fi
+
+# Determine SMTP server address
+given_smtpserver=$(sed -n -e "s/^.*hvp_smtpserver=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
+if [ -n "${given_smtpserver}" ]; then
+	my_smtpserver="${given_smtpserver}"
+fi
+
+# Determine choice of forcing SMTPS
+if grep -w -q 'hvp_smtps' /proc/cmdline ; then
+	use_smtps="true"
 fi
 
 # Create /dev/root symlink for grubby (must differentiate for use of LVM or MD based "/")
@@ -1950,51 +2227,32 @@ ln -sf $rootdisk /dev/root
 rm -rf /var/cache/yum/*
 yum --enablerepo '*' clean all
 
-# Comment out mirrorlist directives and uncomment the baseurl ones to make better use of proxy caches
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
 # Note: done here to cater for those repos already installed by default
-for repofile in /etc/yum.repos.d/*.repo; do
-	if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
-		sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
-		sed -i -e 's/^metalink/#metalink/g' "${repofile}"
-		sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
-	fi
-done
-# Disable fastestmirror yum plugin too
-sed -i -e 's/^enabled.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
-
-# Allow specifying custom base URLs for repositories and GPG keys
-# Note: done here to cater for those repos already installed by default
-for repo_name in $(yum repolist all -v 2>/dev/null | awk '/Repo-id/ {print $3}' | sed -e 's>/.*$>>g'); do
-	# Take URLs from parameters files or hardcoded defaults
-	repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
-	repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
-	# Take URLs from kernel commandline
-	given_repo_baseurl=$(sed -n -e "s/^.*hvp_${repo_name}_baseurl=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_baseurl}" ]; then
-		# Correctly detect an empty (disabled) repo URL
-		if [ "${given_repo_baseurl}" = '""' -o "${given_repo_baseurl}" = "''" ]; then
-			unset repo_baseurl
-		else
-			repo_baseurl="${given_repo_baseurl}"
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
 		fi
-	fi
-	given_repo_gpgkey=$(sed -n -e "s/^.*hvp_${repo_name}_gpgkey=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_gpgkey}" ]; then
-		# Correctly detect an empty (disabled) gpgkey URL
-		if [ "${given_repo_gpgkey}" = '""' -o "${given_repo_gpgkey}" = "''" ]; then
-			unset repo_gpgkey
-		else
-			repo_gpgkey="${given_repo_gpgkey}"
+	done
+	# Disable fastestmirror yum plugin too
+	sed -i -e 's/^enabled.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos already installed by default
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
 		fi
-	fi
-	# Force any custom URLs
-	if [ -n "${repo_baseurl}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
-	fi
-	if [ -n "${repo_gpgkey}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
-	fi
-done
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
 
 # Add YUM priorities plugin
 yum -y install yum-plugin-priorities
@@ -2004,70 +2262,88 @@ yum -y install yum-plugin-priorities
 #yum-config-manager --enable cr > /dev/null
 
 # Add HVP custom repo
-yum -y --nogpgcheck install https://dangerous.ovirt.life/hvp-repos/el7/hvp/x86_64/hvp-release-7-5.noarch.rpm
+# Define proper network source
+hvp_baseurl="https://dangerous.ovirt.life/hvp-repos/el$(rpm -q --queryformat '%{version}' centos-release)/hvp/"
+# Prefer custom HVP repo URL, if any
+if [ -n "${hvp_repo_baseurl['hvp']}" ]; then
+	hvp_baseurl=$(echo "${hvp_repo_baseurl['hvp']}" | sed -e 's/\$releasever/'$(rpm -q --queryformat '%{version}' centos-release)'/g' -e 's/\$basearch/'$(uname -m)'/g')
+fi
+yum -y --nogpgcheck install ${hvp_baseurl}/hvp-release-latest.noarch.rpm
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+		fi
+	done
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos installed above
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+		fi
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
 # Enable HVP own DC-enabled Samba rebuild repo
 yum-config-manager --enable hvp-samba-dc > /dev/null
 # Make sure that we always prefer HVP own rebuild repo
 yum-config-manager --save --setopt='hvp-samba-dc.priority=50' > /dev/null
 
-# Add upstream repository definitions
+# Add EPEL repository definition
 yum -y install epel-release
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+		fi
+	done
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos installed above
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+		fi
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
 
-# Add Webmin repo
+# Add Webmin repository definition
+# Define proper network source
+webmin_baseurl="http://download.webmin.com/download/yum/"
+webmin_gpgkey="http://www.webmin.com/jcameron-key.asc"
+# Prefer custom Webmin URLs, if any
+if [ -n "${hvp_repo_baseurl['webmin']}" ]; then
+	webmin_baseurl="${hvp_repo_baseurl['webmin']}"
+fi
+if [ -n "${hvp_repo_gpgkey['webmin']}" ]; then
+	webmin_gpgkey="${hvp_repo_gpgkey['webmin']}"
+fi
 cat << EOF > /etc/yum.repos.d/webmin.repo
 [webmin]
 name = Webmin Distribution Neutral
-baseurl = http://download.webmin.com/download/yum
+baseurl = ${webmin_baseurl}
 gpgcheck = 1
 enabled = 1
-gpgkey = http://www.webmin.com/jcameron-key.asc
+gpgkey = ${webmin_gpgkey}
 skip_if_unavailable = 1
 EOF
 chmod 644 /etc/yum.repos.d/webmin.repo
-
-# Comment out mirrorlist directives and uncomment the baseurl ones to make better use of proxy caches
-# Note: repeated here to allow applying to further repos installed above
-for repofile in /etc/yum.repos.d/*.repo; do
-	if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
-		sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
-		sed -i -e 's/^metalink/#metalink/g' "${repofile}"
-		sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
-	fi
-done
-
-# Allow specifying custom base URLs for repositories and GPG keys
-# Note: repeated here to allow applying to further repos installed above
-for repo_name in $(yum repolist all -v 2>/dev/null | awk '/Repo-id/ {print $3}' | sed -e 's>/.*$>>g'); do
-	# Take URLs from parameters files or hardcoded defaults
-	repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
-	repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
-	# Take URLs from kernel commandline
-	given_repo_baseurl=$(sed -n -e "s/^.*hvp_${repo_name}_baseurl=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_baseurl}" ]; then
-		# Correctly detect an empty (disabled) repo URL
-		if [ "${given_repo_baseurl}" = '""' -o "${given_repo_baseurl}" = "''" ]; then
-			unset repo_baseurl
-		else
-			repo_baseurl="${given_repo_baseurl}"
-		fi
-	fi
-	given_repo_gpgkey=$(sed -n -e "s/^.*hvp_${repo_name}_gpgkey=\\(\\S*\\).*\$/\\1/p" /proc/cmdline)
-	if [ -n "${given_repo_gpgkey}" ]; then
-		# Correctly detect an empty (disabled) gpgkey URL
-		if [ "${given_repo_gpgkey}" = '""' -o "${given_repo_gpgkey}" = "''" ]; then
-			unset repo_gpgkey
-		else
-			repo_gpgkey="${given_repo_gpgkey}"
-		fi
-	fi
-	# Force any custom URLs
-	if [ -n "${repo_baseurl}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
-	fi
-	if [ -n "${repo_gpgkey}" ]; then
-		yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
-	fi
-done
 
 # Enable use of delta rpms since we are not using a local mirror
 # Note: this may introduce HTTP 416 errors - better leave this to post-installation manual choices
@@ -2080,6 +2356,7 @@ rm -rf /var/cache/yum/*
 yum --enablerepo '*' clean all
 
 # Update OS (with "upgrade" to allow package obsoletion) non-interactively ("-y" yum option)
+# Note: any repo file involved in release package upgrades would be in .rpmnew so no need to reapply customizations now
 yum -y upgrade
 
 # TODO: Make sure that the latest installed kernel is the default
@@ -2093,7 +2370,7 @@ grubby --set-default=/boot/vmlinuz-$(rpm -q --last kernel | head -1 | cut -f 1 -
 # Note: even in presence of an actual/virtualized hardware random number generator (managed by rngd) we install haveged as a safety measure
 yum -y install haveged
 
-# Install YUM-cron, YUM-plugin-ps, Gdisk, PWGen, HPing, 7Zip, RAR and ARJ
+# Install YUM-cron, YUM-plugin-ps, Gdisk, PWGen, HPing, 7Zip and ARJ
 yum -y install hping3 p7zip{,-plugins} arj pwgen
 yum -y install yum-cron yum-plugin-ps gdisk
 
@@ -2115,7 +2392,11 @@ yum -y install webmin
 /etc/init.d/webmin stop
 
 # Install custom Samba packages with AD DC support from HVP own repo and related utilities
-yum -y install samba-dc samba-common-tools samba-client samba-winbind-clients rsync krb5-workstation openldap-clients cyrus-sasl-gssapi
+# TODO: add python3-samba-dc and python3-dns as explicit dependencies of samba-dc package (required by samba-tool and samba_dnsupdate)
+yum -y install samba-dc python3-samba-dc python3-dns samba-common-tools samba-client samba-winbind-clients rsync krb5-workstation openldap-clients cyrus-sasl-gssapi
+
+# Install phpLDAPAdmin
+yum -y install phpldapadmin
 
 # Install Bareos client (file daemon + console)
 # TODO: using HVP repo to bring in recompiled packages from Bareos stable GIT tree - remove when regularly published upstream
@@ -2161,6 +2442,36 @@ yum --enablerepo '*' clean all
 # Remove package update leftovers
 find /etc -type f -name '*.rpmnew' -exec rename .rpmnew "" '{}' ';'
 find /etc -type f -name '*.rpmsave' -exec rm -f '{}' ';'
+
+# Comment out mirrorlist directives and uncomment the baseurl ones when using custom URLs for repos
+# Note: done here to cater for modified repos from the upgrade above
+if [ "${custom_yum_conf}" = "true" ]; then
+	for repofile in /etc/yum.repos.d/*.repo; do
+		if egrep -q '^(mirrorlist|metalink)' "${repofile}"; then
+			sed -i -e 's/^mirrorlist/#mirrorlist/g' "${repofile}"
+			sed -i -e 's/^metalink/#metalink/g' "${repofile}"
+			sed -i -e 's/^#baseurl/baseurl/g' "${repofile}"
+		fi
+	done
+	# Reapply all yum settings
+	sed -i -e 's/^enabled.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
+	yum-config-manager --save --setopt='deltarpm=0' > /dev/null
+	yum-config-manager --enable hvp-samba-dc > /dev/null
+	yum-config-manager --save --setopt='hvp-samba-dc.priority=50' > /dev/null
+	# Allow specifying custom base URLs for repositories and GPG keys
+	# Note: done here to cater for those repos already installed by default
+	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
+		repo_baseurl="${hvp_repo_baseurl[${repo_name}]}"
+		repo_gpgkey="${hvp_repo_gpgkey[${repo_name}]}"
+		# Force any custom URLs
+		if [ -n "${repo_baseurl}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.baseurl=${repo_baseurl}" > /dev/null
+		fi
+		if [ -n "${repo_gpgkey}" ]; then
+			yum-config-manager --save --setopt="${repo_name}.gpgkey=${repo_gpgkey}" > /dev/null
+		fi
+	done
+fi
 
 # Now configure the base OS
 # TODO: Decide which part to configure here and which part to demand to Ansible
@@ -2325,7 +2636,6 @@ fi
 # Configure NTP time synchronization (immediate hardware sync, add initial time adjusting from given server)
 # Note: further configuration fragment created in pre section above and copied in post section below
 sed -i -e 's/^SYNC_HWCLOCK=.*$/SYNC_HWCLOCK="yes"/' /etc/sysconfig/ntpdate
-echo "0.centos.pool.ntp.org" > /etc/ntp/step-tickers
 
 # Allow NTPdate hardware clock sync through SELinux
 # Note: obtained by means of: cat /var/log/audit/audit.log | audit2allow -M myntpdate
@@ -2333,15 +2643,21 @@ echo "0.centos.pool.ntp.org" > /etc/ntp/step-tickers
 mkdir -p /etc/selinux/local
 cat << EOF > /etc/selinux/local/myntpdate.te
 
-module myntpdate 8.0;
+module myntpdate 9.0;
 
 require {
+        type chronyc_t;
+        type kernel_t;
         type ntpd_t;
         type hwclock_exec_t;
         type adjtime_t;
+        class system module_request;
         class file { open read write execute execute_no_trans getattr };
         class netlink_audit_socket create;
 }
+
+#============= chronyc_t ==============
+allow chronyc_t kernel_t:system module_request;
 
 #============= ntpd_t ==============
 allow ntpd_t hwclock_exec_t:file { open read execute execute_no_trans getattr };
@@ -2377,22 +2693,7 @@ systemctl enable ntpd
 
 # Configure Samba AD DC
 # Note: initial domain provisioning performed by script created in pre section above and copied in third post section below
-# TODO: current Samba Fedora packaging lacks a systemd unit for Samba AD DC - creating one here - remove when added upstream
-cat << EOF > /etc/systemd/system/samba-ad-dc.service
-[Unit]
-Description=Samba Active Directory Domain Controller
-After=network.target remote-fs.target nss-lookup.target
-
-[Service]
-Type=forking
-ExecStart=/usr/sbin/samba -D
-PIDFile=/var/run/samba.pid
-
-[Install]
-WantedBy=multi-user.target
-EOF
-chmod 644 /etc/systemd/system/samba-ad-dc.service
-chown root:root /etc/systemd/system/samba-ad-dc.service
+# Note: current Samba AD DC package has a proper systemd unit - no need to create a custom one here
 
 # Add firewalld configuration for Samba AD DC
 cat << EOF > /etc/firewalld/services/samba-ad-dc.xml
@@ -2420,7 +2721,17 @@ chmod 644 /etc/firewalld/services/samba-ad-dc.xml
 firewall-offline-cmd --add-service=dns
 firewall-offline-cmd --add-service=samba
 firewall-offline-cmd --add-service=samba-ad-dc
-systemctl disable samba-ad-dc
+systemctl disable samba
+
+# Customize SELinux configuration for phpLDAPAdmin
+setsebool -P httpd_can_connect_ldap on
+
+# TODO: import LDAP server X.509 certificate or use a common recognized CA then remove the following line
+echo -e 'TLS_REQCERT\tallow' >> /etc/openldap/ldap.conf
+
+# Configure phpLDAPAdmin
+# Note: login requires username specified as DN
+sed -i -e "/Local LDAP Server/s%^\\(.*\\)\$%\\1\\n\$servers->SetValue('server','host','ldaps://localhost');\\n\$servers->SetValue('server','port',636);\\n\$servers->SetValue('login','auth_type','session');\\n%" -e "s%^\\(\$servers->SetValue('login','attr','uid');\\).*\$%// \\1%" /etc/phpldapadmin/config.php
 
 # Note: Configured TCP wrappers allow file in pre above and copied in second post below
 echo "ALL: ALL" >> /etc/hosts.deny
@@ -2529,7 +2840,7 @@ chmod 640 /var/log/{messages,secure,cron,maillog,spooler}
 
 # Configure ABRTd
 # Allow reports for signed packages from 3rd-party repos by adding their keys under /etc/pki/rpm-gpg/
-for repokeyurl in $(grep -h '^gpgkey' /etc/yum.repos.d/*.repo | grep -v 'file:///' | sed -e 's/^gpgkey\s*=\s*//' -e 's/\s*$//' -e 's/\$releasever/'$(rpm -q --queryformat '%{version}\n' centos-release)'/g' | sort | uniq); do
+for repokeyurl in $(grep -h '^gpgkey' /etc/yum.repos.d/*.repo | grep -v 'file:///' | sed -e 's/^gpgkey\s*=\s*//' -e 's/\s*$//' -e 's/\$releasever/'$(rpm -q --queryformat '%{version}' centos-release)'/g' | sort | uniq); do
 	key_file="$(echo ${repokeyurl} | sed -e 's%^.*/\([^/]*\)$%\1%')"
 	if [ ! -f "/etc/pki/rpm-gpg/${key_file}" ]; then
 		wget -P /etc/pki/rpm-gpg/ "${repokeyurl}"
@@ -2573,7 +2884,7 @@ cat << EOF | openssl req -new -sha256 -key /etc/pki/tls/private/localhost.key -x
 IT
 Lombardia
 Bergamo
-FleurFlower
+HVP
 Heretic oVirt Project Demo Infrastructure
 ${HOSTNAME}
 root@${HOSTNAME}
@@ -2694,6 +3005,7 @@ cat << EOF > /var/www/html/index.html
 					<p>Le funzionalit&agrave; predisposte per l'amministrazione/controllo sono elencate di seguito.
 					<ul>
 						<li>Lo strumento web di amministrazione della macchina &egrave; disponibile <a href="/manage/">qui</a>.</li>
+						<li>Lo strumento web di amministrazione del servizio di directory &egrave; disponibile <a href="/ds/">qui</a>.</li>
 						<li>Lo strumento web di visualizzazione dell'utilizzo rete &egrave; disponibile <a href="/mrtg/">qui</a>.</li>
 						<li>Lo strumento web di visualizzazione dell'utilizzo http &egrave; disponibile <a href="/usage/">qui</a>.</li>
 					</ul>
@@ -2707,6 +3019,7 @@ cat << EOF > /var/www/html/index.html
 					<p>The maintenance/administrative resources are listed below.
 					<ul>
 						<li>The server administration web tool is available <a href="/manage/">here</a>.</li>
+						<li>The directory service administration web tool is available <a href="/ds/">here</a>.</li>
 						<li>The server network utilization web tool is available <a href="/mrtg/">here</a>.</li>
 						<li>The web server usage statistics are available <a href="/usage/">here</a>.</li>
 					</ul>
@@ -2721,6 +3034,7 @@ chmod 644 /var/www/html/index.html
 
 # Enable Apache
 firewall-offline-cmd --add-service=http
+firewall-offline-cmd --add-service=https
 systemctl enable httpd
 
 # Configure Webmin
@@ -2848,10 +3162,9 @@ chmod 750 /var/local/backup
 cat << EOF > /usr/local/sbin/dump2backup
 #!/bin/bash
 # Dump Samba AD DC server state to be picked up by standard filesystem backup
-prefix="\$(hostname)-\$(date '+%Y-%m-%d_%H-%M-%S')"
-content="samba-domaincontroller-backup"
-find /var/lib/samba -type f -iname '*.tdb' -exec tdbbackup -s .bak '{}' ';' > /var/local/backup/\${prefix}-\${content}.log 2>&1
-tar -czf /var/local/backup/\${prefix}-\${content}.tar.gz /var/lib/samba >> /var/local/backup/\${prefix}-\${content}.log 2>&1
+timestamp="\$(date -Ins | tr ':,' '-.')"
+content="samba-backup"
+samba-tool domain backup offline --targetdir=/var/local/backup > /var/local/backup/\${content}-\${timestamp}.log 2>&1
 res=\$?
 if [ \${res} -ne 0 ]; then
 	# In case of errors, do not remove anything and return error code upstream
@@ -2938,6 +3251,7 @@ pushd /etc/selinux/local
 checkmodule -M -m -o myks1stboot.mod myks1stboot.te
 semodule_package -o myks1stboot.pp -m myks1stboot.mod
 semodule -i myks1stboot.pp
+popd
 
 # Set up "first-boot" configuration script (steps that require a fully up system)
 cat << EOF > /etc/rc.d/rc.ks1stboot
@@ -2976,12 +3290,29 @@ elif dmidecode -s system-manufacturer | grep -q 'Xen' ; then
 	rm -f xe-guest-utilities*.rpm
 elif dmidecode -s system-manufacturer | grep -q "VMware" ; then
 	# Note: VMware basic support uses distro-provided packages installed during post phase
-	# TODO: adding _netdev to break possible systemd ordering cycle - investigate further and remove it
-	mkdir -p /mnt/hgfs
-	cat <<- EOM >> /etc/fstab
-	.host:/	/mnt/hgfs	fuse.vmhgfs-fuse	allow_other,auto_unmount,_netdev,x-systemd.requires=vmtoolsd.service,defaults	0 0
+	# Note: adding nofail to avoid making it fail the remote-fs.target if unavailable
+	# TODO: adding network dependency to break possible systemd ordering cycle - investigate further and remove it
+	cat <<- EOM > /etc/systemd/system/mnt-hgfs.mount
+	[Unit]
+	Description=VMware shared folders
+	After=network.target network-online.target vmtoolsd.service
+	Requires=network.target network-online.target vmtoolsd.service
+	Before=multi-user.target
+	Conflicts=umount.target
+	
+	[Mount]
+	What=.host:/
+	Where=/mnt/hgfs
+	Type=fuse.vmhgfs-fuse
+	Options=allow_other,auto_unmount,nofail
+	TimeoutSec=50s
+	
+	[Install]
+	WantedBy=multi-user.target
 	EOM
-	mount /mnt/hgfs
+	chmod 644 /etc/systemd/system/mnt-hgfs.mount
+	systemctl daemon-reload
+	systemctl --now enable mnt-hgfs.mount
 	need_reboot="no"
 elif dmidecode -s system-manufacturer | grep -q "innotek" ; then
 	wget https://dangerous.ovirt.life/support/VirtualBox/VBoxLinuxAdditions.run
@@ -3063,8 +3394,11 @@ check_ip="\$(dig \${current_name}.\${target_domain} A +short)"
 if [ -n "\${check_ip}" -a "\${check_ip}" != "\${main_ip}" ]; then
 	# Name does not match: modify (starting from suffix 2) and resolve it till it is either unknown or matching with configured IP
 	tentative_name_found="false"
+	current_base_name=\$(echo \${current_name} | sed -e 's/-[^-]*\$//')
+	current_name_suffix=\$(echo \${current_name} | sed -n -e 's/^.*\\(-[^-]*\\)\$/\\1/p')
 	for ((name_increment=2;name_increment<=\${multi_instance_max}+1;name_increment=name_increment+1)); do
-		tentative_name="\${current_name}\${name_increment}"
+		# In case of decorated names use increment only on the base name
+		tentative_name="\${current_base_name}\${name_increment}\${current_name_suffix}"
 		check_ip="\$(dig \${tentative_name}.\${target_domain} A +short)"
 		if [ -z "\${check_ip}" -o "\${check_ip}" = "\${main_ip}" ]; then
 			tentative_name_found="true"
@@ -3077,6 +3411,23 @@ if [ -n "\${check_ip}" -a "\${check_ip}" != "\${main_ip}" ]; then
 		# Modify already saved entries
 		# Note: names on secondary zones are kept aligned
 		sed -i -e "s/\\b\${current_name}\\b/\${tentative_name}/g" /etc/hosts
+		# Prepare default (self-signed) certificate
+		# Note: certificate must be recreated to reflect new hostname
+		openssl genrsa 2048 > /etc/pki/tls/private/localhost.key
+		cat <<- EOM | openssl req -new -sha256 -key /etc/pki/tls/private/localhost.key -x509 -days 3650 -out /etc/pki/tls/certs/localhost.crt
+		IT
+		Lombardia
+		Bergamo
+		HVP
+		Heretic oVirt Project Demo Infrastructure
+		\$(hostname)
+		root@\$(hostname)
+		EOM
+		cat /etc/pki/tls/dhparams.pem >> /etc/pki/tls/certs/localhost.crt
+		# Restart services to pick up new certificates
+		cat /etc/pki/tls/private/localhost.key > /etc/webmin/miniserv.pem
+		cat /etc/pki/tls/certs/localhost.crt >> /etc/webmin/miniserv.pem
+		systemctl restart webmin httpd
 	fi
 fi
 
@@ -3140,8 +3491,17 @@ if [ -s /tmp/hvp-bind-zones/hosts ]; then
 	cat /tmp/hvp-bind-zones/hosts >> ${ANA_INSTALL_PATH}/etc/hosts
 fi
 
+# Copy NTPdate configuration file (generated in pre section above) into installed system
+if [ -s /tmp/hvp-ntpd-conf/step-tickers ]; then
+	cat /tmp/hvp-ntpd-conf/step-tickers > ${ANA_INSTALL_PATH}/etc/ntp/step-tickers
+	chmod 644 ${ANA_INSTALL_PATH}/etc/ntp/step-tickers
+	chown root:root ${ANA_INSTALL_PATH}/etc/ntp/step-tickers
+fi
+
 # Append NTPd configuration fragment (generated in pre section above) into installed system
+# Note: if we specify additional Chrony configuration, then all default servers get disabled
 if [ -s /tmp/hvp-ntpd-conf/ntp.conf ]; then
+	sed -i -e '/^server\s/s/^/#/g' ${ANA_INSTALL_PATH}/etc/ntp.conf
 	cat /tmp/hvp-ntpd-conf/ntp.conf >> ${ANA_INSTALL_PATH}/etc/ntp.conf
 fi
 
