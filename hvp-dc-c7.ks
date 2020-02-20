@@ -26,6 +26,7 @@
 # Note: to force custom SMTP relay server name/IP add hvp_smtpserver=smtpname where smtpname is the SMTP server fully qualified domain name or IP (used only on nodes and vms)
 # Note: to force custom SMTP relay server to use SMTPS add hvp_smtps (used only on nodes and vms)
 # Note: to force custom gateway IP add hvp_gateway=n.n.n.n where n.n.n.n is the gateway IP
+# Note: to force custom node count add hvp_nodecount=N where N is the number of nodes in the cluster
 # Note: to force custom storage naming add hvp_storagename=mystoragename where mystoragename is the unqualified (ie without domain name part) hostname of the storage
 # Note: to force custom storage IPs add hvp_storage_offset=o where o is the storage IPs base offset on mgmt/lan networks
 # Note: to force custom Gluster NFS-shares volume naming add hvp_unixshare_volumename=myvolumename where myvolumename is the volume name
@@ -61,6 +62,7 @@
 # Note: the default SMTP server name is assumed to be empty and the mail relaying will happen locally
 # Note: the default SMTP server connection is assumed to be plaintext with STARTTLS
 # Note: the default gateway IP is assumed to be equal to the test IP on the mgmt network
+# Note: the default node count is 3
 # Note: the default storage naming uses an empty string to disable default configuration of the storage service
 # Note: the default storage IPs base offset on mgmt/lan networks is assumed to be the network address plus 30
 # Note: the default Gluster NFS-shares volume naming uses the name unixshare
@@ -1754,10 +1756,12 @@ cat << EOF >> rc.samba-dc
 		# Note: by default the "Domain Users" group has no gidNumber (even if it seems to have gidNumber 100 but that could be xidNumber)
 		# Note: whether AD or RFC2307bis primary group has precedence depends on idmapping backend on clients - Winbind >= 4.6.0 has unix_primary_group parameter
 		# Note: all accounts will follow password expiration rules by default
-		# TODO: add --home-drive=H and --home-directory=\\discord.ad.lan.private\Users\username when storage_name is not null
 		# TODO: find a proper idmapping parameter for SSSD too
 		# TODO: find a general way to define uid/gid values
-		samba-tool user create "${winadmin_username}" '${winadmin_password}' --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=100001 --username=administrator --password='${winroot_password}'
+		if [ -n "${storage_name}" ]; then
+			user_home_options="--home-drive=H and --home-directory=\\${storage_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi)\Users\${winadmin_username}"
+		fi
+		samba-tool user create "${winadmin_username}" '${winadmin_password}' ${user_home_options} --nis-domain=$(echo ${ad_subdomain_prefix}.${domain_name[${my_zone}]} | awk -F. '{print $1}') --unix-home=/home/${ad_subdomain_prefix}.${domain_name[${my_zone}]}/${winadmin_username} --uid-number=10001 --login-shell=/bin/bash --gid-number=100001 --username=administrator --password='${winroot_password}'
 		# Add displayName (required by some apps, like Nextcloud) to the newly created user
 		cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
 		\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "${winadmin_username}" | awk '{print \$1}') | grep '^dn:')
@@ -1765,6 +1769,15 @@ cat << EOF >> rc.samba-dc
 		add: displayName
 		displayName: HVP AD Admin
 		EOM
+		if [ -n "${storage_name}" ]; then
+			# Add profilePath (to enable roaming profile) to the newly created user
+			cat <<- EOM | ldbmodify -H /var/lib/samba/private/sam.ldb -i
+			\$(ldbsearch -H /var/lib/samba/private/sam.ldb objectsid=\$(wbinfo --name-to-sid "${winadmin_username}" | awk '{print \$1}') | grep '^dn:')
+			changetype: modify
+			add: profilePath
+			profilePath: \\${storage_name}$(if [ "${use_hostname_decoration}" = "true" ]; then echo "-${my_zone}" ; fi)\Profiles\${winadmin_username}
+			EOM
+		fi
 		# Add newly created user to the "Unix Admins" group
 		samba-tool group addmembers "Unix Admins" "${winadmin_username}"
 		# Note: do not add gidNumber 100000 to "Domain Admins" - it seems that having a gidNumber may interfer with sysvol files ownership - https://www.spinics.net/lists/samba/msg143752.html
@@ -2003,7 +2016,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2020010701"
+script_version="2020022001"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
