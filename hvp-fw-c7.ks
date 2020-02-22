@@ -1375,6 +1375,19 @@ view external {
 EOF
 popd
 
+# Prepare NetworkManager configuration fragment for main interface
+# Note: the following basically helps identifying the interface in post section below
+# Note: when part of an AD domain then the DC must be kept as DNS server
+mkdir -p /tmp/hvp-bind-zones
+pushd /tmp/hvp-bind-zones
+if [ "${domain_join}" != "true" ]; then
+	cat <<- EOF > "ifcfg-${nics[${my_zone}]}"
+	PEERDNS="no"
+	DNS1="127.0.0.1"
+	EOF
+fi
+popd
+
 # Create DHCPd configuration
 mkdir -p /tmp/hvp-dhcpd-conf
 pushd /tmp/hvp-dhcpd-conf
@@ -1564,44 +1577,47 @@ if [ "${domain_join}" = "true" ]; then
 	        # TODO: try adcli update with explicit --login-ccache parameter as per https://bugs.freedesktop.org/show_bug.cgi?id=99460
 	        rm -f /etc/krb5.keytab
 	        adcli join -C --domain=${ad_subdomain_prefix}.${domain_name[${my_zone}]} --service-name=host --service-name=RestrictedKrbHost --service-name=HTTP
+	        kdestroy
 	        # Add DNS entries for our additional service names
-			# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
-			nsupdate -g << EOM
-			server ${my_nameserver}
-			zone ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
-			update delete wpad.${ad_subdomain_prefix}.${domain_name[${my_zone}]}. A
-			update add wpad.${ad_subdomain_prefix}.${domain_name[${my_zone}]}. 3600 A ${my_ip[${my_zone}]}
-			update delete proxy.${ad_subdomain_prefix}.${domain_name[${my_zone}]}. A
-			update add proxy.${ad_subdomain_prefix}.${domain_name[${my_zone}]}. 3600 A ${my_ip[${my_zone}]}
-			send
-			EOM
+		# Note: we use machine identity for kerberized DDNS
+		kinit -k "$(klist -ke | awk '/^[[:space:]]*[[:digit:]]+/ {if ($2 !~ /\//) print gensub("@.*$","","g",$2)}' | sort -u | head -1)@$(klist -ke | awk '/^[[:space:]]*[[:digit:]]+/ {if ($2 !~ /\//) print gensub("^.*@","","g",$2)}' | sort -u | head -1)"
+		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+		nsupdate -g << EOM
+		server ${my_nameserver}
+		zone ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
+		update delete wpad.${ad_subdomain_prefix}.${domain_name[${my_zone}]}. A
+		update add wpad.${ad_subdomain_prefix}.${domain_name[${my_zone}]}. 3600 A ${my_ip[${my_zone}]}
+		update delete proxy.${ad_subdomain_prefix}.${domain_name[${my_zone}]}. A
+		update add proxy.${ad_subdomain_prefix}.${domain_name[${my_zone}]}. 3600 A ${my_ip[${my_zone}]}
+		send
+		EOM
 	        kdestroy
 	        # Limit access from AD accounts
 	        # TODO: GPOs must be created to limit access
-			# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
-			cat << EOM >> /etc/sssd/sssd.conf
-			ad_gpo_access_control = enforcing
-			EOM
+		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+		cat << EOM >> /etc/sssd/sssd.conf
+		ad_gpo_access_control = enforcing
+		EOM
 	        # Complete SSSD configuration for AD
 	        sed -i -e '/services/s/\$/, pac/' -e '/^use_fully_qualified_names/s/True/False/' -e '/^fallback_homedir/s>%u@%d>%d/%u>' /etc/sssd/sssd.conf
-			# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
-			cat << EOM >> /etc/sssd/sssd.conf
-			auto_private_groups = True
-			auth_provider = ad
-			chpass_provider = ad
-			EOM
+		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+		cat << EOM >> /etc/sssd/sssd.conf
+		auto_private_groups = True
+		auth_provider = ad
+		chpass_provider = ad
+		EOM
 	        # Configure sudo for AD-integrated LDAP rules
 	        # Note: using SSSD (instead of direct LDAP access) as sudo backend
-			# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
-			cat << EOM >> /etc/nsswitch.conf
-			
-			sudoers:    files sss
-			EOM
+		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+		cat << EOM >> /etc/nsswitch.conf
+		
+		sudoers:    files sss
+		EOM
 	        sed -i -e '/services/s/\$/, sudo/' /etc/sssd/sssd.conf
-			# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
-			cat << EOM >> /etc/sssd/sssd.conf
-			sudo_provider = ad
-			EOM
+		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+		cat << EOM >> /etc/sssd/sssd.conf
+		sudo_provider = ad
+		EOM
 	        systemctl restart sssd
 	        # Configure SSH server and client for Kerberos SSO
 	        sed -i -e 's/^#GSSAPIKeyExchange\\s.*\$/GSSAPIKeyExchange yes\\nGSSAPIStoreCredentialsOnRekey yes/' /etc/ssh/sshd_config
@@ -1621,8 +1637,13 @@ mkdir -p /tmp/hvp-fw-conf
 pushd /tmp/hvp-fw-conf
 cat << EOF > /tmp/hvp-fw-conf/rc.fw-provision
 #!/bin/bash
-# TODO: Add Firewall/Gateway provisioning actions
-exit 0
+# Add Firewall/Gateway provisioning actions
+
+# Configure SARG-Apache integration (allow only through HTTPS; allow from localhost and LAN)
+# TODO: for privacy reasons add some form of authnz
+sed -i -e '/^\s*Allow\s.*127\.0\.0\.1/s/Allow.*$/Allow from ${allowed_addr}/' -e 's>^\(\s*\)\(#\s*Allow\s.*\)$>\1\2\n\1RewriteEngine On\n\1RewriteCond %{HTTPS} !=on\n\1RewriteRule ^.*$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]>' /etc/httpd/conf.d/sarg.conf
+systemctl restart httpd
+
 EOF
 
 popd
@@ -1930,6 +1951,8 @@ if [ "${custom_yum_conf}" = "true" ]; then
 		fi
 	done
 fi
+# Note: using HVP Fedora-rebuild repo to get packages not officially ported to EPEL
+yum-config-manager --enable hvp-fedora-rebuild > /dev/null
 
 # Add EPEL repository definition
 yum -y install epel-release
@@ -2072,8 +2095,8 @@ yum -y install strongswan
 # Install Proxy support
 yum -y install squid squidGuard squidclamav clamd clamav
 
-# Install Squid Real Monitor
-yum -y install wbm-squidrealmonitor
+# Install Webmin Squid Real Monitor and Squid Analysis Report Generator (SARG)
+yum -y install wbm-squidrealmonitor sarg
 
 # Install IPsec support
 yum -y install strongswan
@@ -2081,7 +2104,7 @@ yum -y install strongswan
 # Install SmokePing
 yum -y install smokeping
 
-# Install inadyn
+# Install InaDyn
 yum -y install inadyn-mt
 
 # Install DHCPd and BIND
@@ -2107,6 +2130,7 @@ if [ "${custom_yum_conf}" = "true" ]; then
 	# Reapply all yum settings
 	sed -i -e 's/^enabled.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
 	yum-config-manager --save --setopt='deltarpm=0' > /dev/null
+	yum-config-manager --enable hvp-fedora-rebuild > /dev/null
 	# Allow specifying custom base URLs for repositories and GPG keys
 	# Note: done here to cater for those repos already installed by default
 	for repo_name in $(yum-config-manager --enablerepo '*' | grep '\[.*\]' | tr -d '[]' | grep -v -w 'main'); do
@@ -2805,6 +2829,40 @@ ln -s proxy.pac /var/www/wpad/wpad.da
 ln -s ../wpad/proxy.pac /var/www/html/
 ln -s proxy.pac /var/www/html/wpad.dat
 ln -s proxy.pac /var/www/html/wpad.da
+
+# Configure DHCP service
+# Note: no need for commandline options - interfaces are implicitly defined by configured subnets below
+# Note: base configuration file generated in pre section above - actual file copying happens in non-chroot post section below
+
+# Enable DHCPd
+firewall-offline-cmd --add-service=dhcp --zone=internal
+systemctl enable dhcpd
+
+# TODO: Configure Squid
+
+# TODO: Enable Squid
+firewall-offline-cmd --zone=internal --add-service=squid
+#systemctl enable squid
+
+# TODO: Configure SquidClamAV
+
+# TODO: Configure SquidGuard
+
+# Configure SARG
+# Note: authnz and access configuration demanded to rc.ks1stboot
+sed -i -e 's/^#language.*$/language Italian/' -e 's/^#user_ip.*$/user_ip yes/' -e 's/^#date_format.*$/date_format e/' -e 's/^#lastlog.*$/lastlog 12/' -e 's/^#overwrite_report.*$/overwrite_report yes/' -e 's/^#max_elapsed.*$/max_elapsed 0/' -e 's/^#denied_report_limit.*$/denied_report_limit 0/' -e 's/^#user_report_limit\s*10.*$/user_report_limit 0/' -e 's/^#\s*byte_cost.*$/byte_cost 0 0/' /etc/sarg/sarg.conf
+
+# TODO: Configure InaDyn service
+# TODO: add custom cmdline parameters to configure a DynDNS provider (service name, username, password, hostname, update period)
+
+# TODO: Enable InaDyn service
+#systemctl enable inadyn
+
+# TODO: Configure StrongSWAN IPsec VPN
+
+# TODO: Enable StrongSWAN
+firewall-offline-cmd --zone=external --add-service=ipsec
+#systemctl enable strongswan
 
 # TODO: Configure Bareos
 
