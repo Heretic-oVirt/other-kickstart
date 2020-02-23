@@ -41,7 +41,7 @@
 # Note: to force custom repo base URL for repo reponame add hvp_reponame_baseurl=HHHHH where HHHHH is the base URL (including variables like $releasever and $basearch)
 # Note: to force custom repo GPG key URL for repo reponame add hvp_reponame_gpgkey=GGGGG where GGGGG is the GPG key URL
 # Note: the default behaviour does not register fixed nic name-to-MAC mapping
-# Note: the default host naming uses the "My Little Pony" character name featherweight
+# Note: the default host naming uses the "My Little Pony" character name shiningarmor
 # Note: the default addressing on connected networks is assumed to be 172.20.{10,12}.0/24 on {mgmt,lan}
 # Note: the default MTU is assumed to be 1500 on {mgmt,lan,internal}
 # Note: the default machine IPs are assumed to be the 254th IPs available (network address + 254) on each connected network
@@ -1685,7 +1685,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2020022303"
+script_version="2020022304"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
