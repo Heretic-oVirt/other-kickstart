@@ -794,13 +794,14 @@ done
 
 # Determine network segment identity and parameters
 # Note: the internal network cannot be the main one
+# Note: since this is a border machine the default gateway should not be on the main network
 if [ -n "${nics['mgmt']}" ]; then
 	my_zone="mgmt"
 elif [ -n "${nics['lan']}" ]; then
 	my_zone="lan"
 fi
 if [ -z "${my_gateway}" ]; then
-	my_gateway="${test_ip[${my_zone}]}"
+	my_gateway="${test_ip['internal']}"
 fi
 
 # Perform check to detect conflated domain name spaces
@@ -1068,6 +1069,7 @@ fi
 cat << EOF >> /tmp/hvp-firewalld-conf/rc.firewalld-setup
 nmcli connection modify ${nics['internal']} connection.zone external
 nmcli connection reload
+firewall-cmd --permanent --remove-service=ssh --zone=external
 firewall-cmd --reload
 EOF
 
@@ -1266,14 +1268,22 @@ EOF
 if [ "${domain_join}" = "true" ]; then
 	cat <<- EOF >> named.conf
 	
+	        zone "${reverse_domain_name[${my_zone}]}" { 
+	                type static-stub;
+	                server-addresses { ${my_nameserver}; };
+	                forwarders {};
+	        };
+	
 	        zone "${ad_subdomain_prefix}.${domain_name[${my_zone}]}" IN {
 	                type static-stub;
 	                server-addresses { ${my_nameserver}; };
 	                forwarders {};
 	        };
+	
 	EOF
 else
 	cat <<- EOF >> named.conf
+	
 	        zone "${reverse_domain_name[${my_zone}]}" { 
 	                type ${my_role};
 	                ${my_options}
@@ -1316,14 +1326,22 @@ EOF
 if [ "${domain_join}" = "true" ]; then
 	cat <<- EOF >> named.conf
 	
+	        zone "${reverse_domain_name[${my_zone}]}" { 
+	                type static-stub;
+	                server-addresses { ${my_nameserver}; };
+	                forwarders {};
+	        };
+	
 	        zone "${ad_subdomain_prefix}.${domain_name[${my_zone}]}" IN {
 	                type static-stub;
 	                server-addresses { ${my_nameserver}; };
 	                forwarders {};
 	        };
+	
 	EOF
 else
 	cat <<- EOF >> named.conf
+	
 	        zone "${reverse_domain_name[${my_zone}]}" { 
 	                type ${my_role};
 	                ${my_options}
@@ -1439,10 +1457,6 @@ subnet ${network[${my_zone}]} netmask ${netmask[${my_zone}]} {
                 range dynamic-bootp $(ipmat ${network[${my_zone}]} ${dhcp_offset} +) $(ipmat $(ipmat $(ipmat ${network[${my_zone}]} ${dhcp_offset} +) ${dhcp_count} +) 1 -);
         }
 }
-
-#
-# --- Reservations
-include "/etc/dhcp/dhcpd-static-leases.conf";
 
 EOF
 popd
@@ -1579,9 +1593,9 @@ if [ "${domain_join}" = "true" ]; then
 	        adcli join -C --domain=${ad_subdomain_prefix}.${domain_name[${my_zone}]} --service-name=host --service-name=RestrictedKrbHost --service-name=HTTP
 	        kdestroy
 	        # Add DNS entries for our additional service names
-		# Note: we use machine identity for kerberized DDNS
-		kinit -k "$(klist -ke | awk '/^[[:space:]]*[[:digit:]]+/ {if ($2 !~ /\//) print gensub("@.*$","","g",$2)}' | sort -u | head -1)@$(klist -ke | awk '/^[[:space:]]*[[:digit:]]+/ {if ($2 !~ /\//) print gensub("^.*@","","g",$2)}' | sort -u | head -1)"
-		# Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
+	        # Note: we use machine identity for kerberized DDNS
+	        kinit -k "\$(klist -ke | awk '/^[[:space:]]*[[:digit:]]+/ {if (\$2 !~ /\\//) print gensub("@.*\$","","g",\$2)}' | sort -u | head -1)@\$(klist -ke | awk '/^[[:space:]]*[[:digit:]]+/ {if (\$2 !~ /\\//) print gensub("^.*@","","g",\$2)}' | sort -u | head -1)"
+	        # Note: the following nested document-here does not need the <<- notation since document-here must have only tabs in front and the outer one will remove all making this block left-aligned
 		nsupdate -g << EOM
 		server ${my_nameserver}
 		zone ${ad_subdomain_prefix}.${domain_name[${my_zone}]}
@@ -1641,7 +1655,7 @@ cat << EOF > /tmp/hvp-fw-conf/rc.fw-provision
 
 # Configure SARG-Apache integration (allow only through HTTPS; allow from localhost and LAN)
 # TODO: for privacy reasons add some form of authnz
-sed -i -e '/^\s*Allow\s.*127\.0\.0\.1/s/Allow.*$/Allow from ${allowed_addr}/' -e 's>^\(\s*\)\(#\s*Allow\s.*\)$>\1\2\n\1RewriteEngine On\n\1RewriteCond %{HTTPS} !=on\n\1RewriteRule ^.*$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]>' /etc/httpd/conf.d/sarg.conf
+sed -i -e '/^\s*Allow\s.*127\.0\.0\.1/s>Allow.*$>Allow from ${allowed_addr}>' -e 's>^\(\s*\)\(#\s*Allow\s.*\)$>\1\2\n\1RewriteEngine On\n\1RewriteCond %{HTTPS} !=on\n\1RewriteRule ^.*$ https://%{SERVER_NAME}%{REQUEST_URI} [R,L]>' /etc/httpd/conf.d/sarg.conf
 systemctl restart httpd
 
 EOF
@@ -1671,7 +1685,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2020020302"
+script_version="2020022303"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -2838,6 +2852,56 @@ ln -s proxy.pac /var/www/html/wpad.da
 firewall-offline-cmd --add-service=dhcp --zone=internal
 systemctl enable dhcpd
 
+# Configure Bind
+# Note: base configuration files generated in pre section above - actual file copying happens in non-chroot post section below
+
+# Note: using haveged to ensure enough entropy (but rngd could be already running from installation environment)
+# Note: starting service manually since systemd inside a chroot would need special treatment
+haveged -w 1024 -F &
+haveged_pid=$!
+pushd /etc
+
+# Generate key for rndc control connections
+rndckey=$(grep Key $(/usr/sbin/dnssec-keygen -a HMAC-MD5 -b 512 -n HOST -T KEY rndc_key).private | awk '{print $2}')
+cat << EOM > rndc.key
+// rndc key for control connections
+key "rndc_key" {
+        algorithm hmac-md5;
+        secret "${rndckey}";
+};
+EOM
+chgrp named rndc.key
+chmod 640 rndc.key
+cat << EOM > rndc.conf
+// rndc configuration for control connections
+options {
+        default-server  localhost;
+        default-key     "rndc_key";
+};
+
+server localhost {
+        key  "rndc_key";
+};
+
+// rndc key for control connections
+include "/etc/rndc.key";
+
+EOM
+chmod 644 rndc.conf
+popd
+
+# Stopping haveged started above
+kill ${haveged_pid}
+
+# TODO: disabling IPv6 DNS resolution - remove when smoothly working everywhere
+cat << EOF >> /etc/sysconfig/named
+OPTIONS="-4"
+EOF
+
+# Enable Bind
+systemctl enable named
+firewall-offline-cmd --add-service=dns --zone=internal
+
 # TODO: Configure Squid
 
 # TODO: Enable Squid
@@ -3088,7 +3152,8 @@ if [ -x /etc/rc.d/rc.users-setup ]; then
 fi
 
 # Check/modify hostname for uniqueness
-main_interface=\$(ip route show | awk '/^default/ {print \$5}')
+# Note: since this is a border machine we must statically select the interface towards lan/mgmt as main interface (default gateway points outside)
+main_interface="${nics[${my_zone}]}"
 main_ip=\$(ip address show dev \${main_interface} primary | awk '/inet[[:space:]]/ {print \$2}' | cut -d/ -f1)
 current_name=\$(hostname -s)
 target_domain=\$(hostname -d)
