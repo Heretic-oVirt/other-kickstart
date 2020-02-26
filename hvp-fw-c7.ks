@@ -1685,7 +1685,7 @@ done
 %post --log /dev/console
 ( # Run the entire post section as a subshell for logging purposes.
 
-script_version="2020022304"
+script_version="2020022502"
 
 # Report kickstart version for reference purposes
 logger -s -p "local7.info" -t "kickstart-post" "Kickstarting for $(cat /etc/system-release) - version ${script_version}"
@@ -3152,8 +3152,8 @@ if [ -x /etc/rc.d/rc.users-setup ]; then
 fi
 
 # Check/modify hostname for uniqueness
-# Note: since this is a border machine we must statically select the interface towards lan/mgmt as main interface (default gateway points outside)
-main_interface="${nics[${my_zone}]}"
+# Note: since this is a border machine we must select the interface towards clients as main interface (default gateway points outside)
+main_interface=\$(grep -w 'interface' /etc/dhcp/dhcpd.conf | awk '{print \$2}' | sed -e 's/;//g')
 main_ip=\$(ip address show dev \${main_interface} primary | awk '/inet[[:space:]]/ {print \$2}' | cut -d/ -f1)
 current_name=\$(hostname -s)
 target_domain=\$(hostname -d)
